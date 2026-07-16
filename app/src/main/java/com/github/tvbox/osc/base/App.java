@@ -12,6 +12,7 @@ import com.github.tvbox.osc.callback.EmptyCallback;
 import com.github.tvbox.osc.callback.LoadingCallback;
 import com.github.tvbox.osc.data.AppDataManager;
 import com.github.tvbox.osc.server.ControlManager;
+import com.github.tvbox.osc.sync.webdav.WebDavSyncScheduler;
 import com.github.tvbox.osc.ui.activity.MainActivity;
 import com.github.tvbox.osc.util.EpgUtil;
 import com.github.tvbox.osc.util.FileUtils;
@@ -57,6 +58,7 @@ public class App extends MultiDexApplication {
         ControlManager.init(this);
         //初始化数据库
         AppDataManager.init();
+        WebDavSyncScheduler.onAppStart();
         LoadSir.beginBuilder()
                 .addCallback(new EmptyCallback())
                 .addCallback(new LoadingCallback())
@@ -87,6 +89,9 @@ public class App extends MultiDexApplication {
         putDefault(HawkConfig.DOH_URL, 0);                   //安全DNS: 0=关闭, 1=腾讯, 2=阿里, 3=360, 4=Google, 5=AdGuard, 6=Quad9
         putDefault(HawkConfig.PLAY_SCALE, 0);                //画面缩放: 0=默认, 1=16:9, 2=4:3, 3=填充, 4=原始, 5=裁剪
         putDefault(HawkConfig.HISTORY_NUM, 2);                //历史记录数量: 0=30, 1=50, 2=70
+        putDefault(HawkConfig.WEBDAV_SYNC_ENABLED, false);   // WebDAV 同步默认关闭
+        putDefault(HawkConfig.WEBDAV_WIFI_ONLY, true);       // 仅 Wi-Fi
+        putDefault(HawkConfig.WEBDAV_SYNC_INTERVAL, 0);      // 仅手动
         putDefaultApi();
     }
 

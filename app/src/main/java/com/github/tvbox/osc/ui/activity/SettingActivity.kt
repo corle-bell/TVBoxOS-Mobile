@@ -17,6 +17,9 @@ import com.github.tvbox.osc.ui.adapter.SelectDialogAdapter.SelectDialogInterface
 import com.github.tvbox.osc.ui.dialog.BackupDialog
 import com.github.tvbox.osc.ui.dialog.LiveApiDialog
 import com.github.tvbox.osc.ui.dialog.SelectDialog
+import com.github.tvbox.osc.sync.webdav.WebDavSyncUiHelper
+import com.github.tvbox.osc.ui.dialog.WebDavSpaceWizardDialog
+import com.github.tvbox.osc.ui.dialog.WebDavSyncDialog
 import com.github.tvbox.osc.util.FastClickCheckUtil
 import com.github.tvbox.osc.util.FileUtils
 import com.github.tvbox.osc.util.HawkConfig
@@ -149,6 +152,68 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
                         }
                     })
             }
+        }
+
+        refreshWebDavStatus()
+        WebDavSyncUiHelper.refreshDeviceCount(false) { count ->
+            runOnUiThread { refreshWebDavStatus() }
+        }
+        mBinding.llWebdavSync.setOnClickListener { v: View? ->
+            FastClickCheckUtil.check(v)
+            XPopup.Builder(mContext)
+                .autoFocusEditText(false)
+                .asCustom(WebDavSyncDialog(this@SettingActivity))
+                .show()
+        }
+        mBinding.llWebdavSync.setOnLongClickListener {
+            val options = arrayListOf("创建同步空间", "加入已有空间")
+            val dialog = SelectDialog<String>(this@SettingActivity)
+            dialog.setTip("同步空间向导")
+            dialog.setAdapter(object : SelectDialogInterface<String?> {
+                override fun click(value: String?, pos: Int) {
+                    val mode = if (pos == 0) {
+                        WebDavSpaceWizardDialog.MODE_CREATE
+                    } else {
+                        WebDavSpaceWizardDialog.MODE_JOIN
+                    }
+                    XPopup.Builder(mContext)
+                        .autoFocusEditText(false)
+                        .asCustom(
+                            WebDavSpaceWizardDialog(this@SettingActivity, mode)
+                                .setOnCompleted { refreshWebDavStatus() }
+                        )
+                        .show()
+                }
+
+                override fun getDisplay(value: String?): String = value ?: ""
+            }, SelectDialogAdapter.stringDiff, options, 0)
+            dialog.show()
+            true
+        }
+        mBinding.btnWebdavSyncNow.setOnClickListener { v: View? ->
+            FastClickCheckUtil.check(v)
+            WebDavSyncUiHelper.syncNow(this, object : WebDavSyncUiHelper.SyncCallback {
+                override fun onStart() {
+                    mBinding.btnWebdavSyncNow.isEnabled = false
+                    mBinding.tvWebdavSyncStatus.text = "同步中…"
+                }
+
+                override fun onSuccess(result: com.github.tvbox.osc.sync.webdav.WebDavSyncCoordinator.SyncResult) {
+                    runOnUiThread {
+                        ToastUtils.showShort("同步完成")
+                        mBinding.btnWebdavSyncNow.isEnabled = true
+                        refreshWebDavStatus()
+                    }
+                }
+
+                override fun onError(message: String?) {
+                    runOnUiThread {
+                        ToastUtils.showShort("同步失败: $message")
+                        mBinding.btnWebdavSyncNow.isEnabled = true
+                        refreshWebDavStatus()
+                    }
+                }
+            })
         }
 
         mBinding.llDns.setOnClickListener { v: View? ->
@@ -430,6 +495,14 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshWebDavStatus()
+        WebDavSyncUiHelper.refreshDeviceCount(false) { count ->
+            runOnUiThread { refreshWebDavStatus() }
+        }
+    }
+
     override fun onBackPressed() {
         if (homeRec != Hawk.get(HawkConfig.HOME_REC, 0) || dnsOpt != Hawk.get(
                 HawkConfig.DOH_URL,
@@ -448,6 +521,10 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
         } else {
             super.onBackPressed()
         }
+    }
+
+    private fun refreshWebDavStatus() {
+        mBinding.tvWebdavSyncStatus.text = WebDavSyncUiHelper.formatStatusSummary()
     }
 
     private fun onClickClearCache(v: View) {

@@ -9,11 +9,13 @@ import com.github.tvbox.osc.base.BaseVbActivity
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.cache.RoomDataManger
 import com.github.tvbox.osc.databinding.ActivityHistoryBinding
+import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.ui.adapter.HistoryAdapter
+import com.blankj.utilcode.util.ToastUtils
+import com.github.tvbox.osc.sync.webdav.WebDavSyncUiHelper
 import com.github.tvbox.osc.util.FastClickCheckUtil
 import com.github.tvbox.osc.util.Utils
 import com.lxj.xpopup.XPopup
-import com.owen.tvrecyclerview.widget.V7GridLayoutManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -23,6 +25,12 @@ class HistoryActivity : BaseVbActivity<ActivityHistoryBinding>() {
     override fun init() {
         initView()
         initData()
+    }
+
+    override fun refresh(event: RefreshEvent) {
+        if (event.type == RefreshEvent.TYPE_HISTORY_REFRESH) {
+            initData()
+        }
     }
 
     private fun initView() {
@@ -45,6 +53,30 @@ class HistoryActivity : BaseVbActivity<ActivityHistoryBinding>() {
                 true
             }
 
+        mBinding.ivSync.setOnClickListener { view: View? ->
+            FastClickCheckUtil.check(view)
+            WebDavSyncUiHelper.syncNow(this, object : WebDavSyncUiHelper.SyncCallback {
+                override fun onStart() {
+                    mBinding.ivSync.isEnabled = false
+                }
+
+                override fun onSuccess(result: com.github.tvbox.osc.sync.webdav.WebDavSyncCoordinator.SyncResult) {
+                    runOnUiThread {
+                        ToastUtils.showShort("同步完成")
+                        mBinding.ivSync.isEnabled = true
+                        initData()
+                    }
+                }
+
+                override fun onError(message: String?) {
+                    runOnUiThread {
+                        ToastUtils.showShort("同步失败: $message")
+                        mBinding.ivSync.isEnabled = true
+                    }
+                }
+            })
+        }
+
         mBinding.titleBar.rightView.setOnClickListener { view: View? ->
             XPopup.Builder(this)
                 .isDarkTheme(Utils.isDarkTheme())
@@ -53,7 +85,6 @@ class HistoryActivity : BaseVbActivity<ActivityHistoryBinding>() {
                     showLoadingDialog()
                     lifecycleScope.launch(Dispatchers.IO) {
                         RoomDataManger.deleteVodRecordAll()
-                        // 在主线程更新数据
                         withContext(Dispatchers.Main) {
                             dismissLoadingDialog()
                             historyAdapter!!.setNewData(ArrayList())

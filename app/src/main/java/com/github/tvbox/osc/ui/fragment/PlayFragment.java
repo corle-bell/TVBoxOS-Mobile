@@ -53,7 +53,9 @@ import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.bean.Subtitle;
 import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.cache.CacheManager;
+import com.github.tvbox.osc.cache.RoomDataManger;
 import com.github.tvbox.osc.event.RefreshEvent;
+import com.github.tvbox.osc.sync.webdav.WebDavSyncScheduler;
 import com.github.tvbox.osc.player.EXOmPlayer;
 import com.github.tvbox.osc.player.IjkMediaPlayer;
 import com.github.tvbox.osc.player.MyVideoView;
@@ -175,22 +177,8 @@ public class PlayFragment extends BaseLazyFragment {
             e.printStackTrace();
         }
         long skip = st * 1000L;
-        Object theCache=CacheManager.getCache(MD5.string2MD5(url));
-        if (theCache == null) {
-            return skip;
-        }
-        long rec = 0;
-        if (theCache instanceof Long) {
-            rec = (Long) theCache;
-        } else if (theCache instanceof String) {
-            try {
-                rec = Long.parseLong((String) theCache);
-            } catch (NumberFormatException e) {
-                System.out.println("String value is not a valid long.");
-            }
-        } else {
-            System.out.println("Value cannot be converted to long.");
-        }
+        String cacheKey = MD5.string2MD5(url);
+        long rec = RoomDataManger.getEpisodeProgressMs(url, cacheKey);
         return Math.max(rec, skip);
     }
 
@@ -220,7 +208,12 @@ public class PlayFragment extends BaseLazyFragment {
         ProgressManager progressManager = new ProgressManager() {
             @Override
             public void saveProgress(String url, long progress) {
-                CacheManager.save(MD5.string2MD5(url), progress);
+                String cacheKey = MD5.string2MD5(url);
+                if (progress <= 0) {
+                    RoomDataManger.saveEpisodeProgress(url, cacheKey, 0);
+                } else {
+                    RoomDataManger.saveEpisodeProgress(url, cacheKey, progress);
+                }
             }
 
             @Override
@@ -241,8 +234,9 @@ public class PlayFragment extends BaseLazyFragment {
             public void playNext(boolean rmProgress) {
                 String preProgressKey = progressKey;
                 PlayFragment.this.playNext(rmProgress);
-                if (rmProgress && preProgressKey != null)
-                    CacheManager.delete(MD5.string2MD5(preProgressKey), 0);
+                if (rmProgress && preProgressKey != null) {
+                    RoomDataManger.deleteEpisodeProgress(preProgressKey, MD5.string2MD5(preProgressKey));
+                }
             }
 
             @Override
@@ -1153,6 +1147,7 @@ public class PlayFragment extends BaseLazyFragment {
             mVideoView.release();
             mVideoView = null;
         }
+        WebDavSyncScheduler.requestDebouncedSync();
         stopLoadWebView(true);
         stopParse();
         Thunder.stop(true);//停止磁力下载
@@ -1240,7 +1235,7 @@ public class PlayFragment extends BaseLazyFragment {
         String progressKey = mVodInfo.sourceKey + mVodInfo.id + mVodInfo.playFlag + mVodInfo.playIndex + vs.name;
         //重新播放清除现有进度
         if (reset) {
-            CacheManager.delete(MD5.string2MD5(progressKey), 0);
+            RoomDataManger.deleteEpisodeProgress(progressKey, MD5.string2MD5(progressKey));
             CacheManager.delete(MD5.string2MD5(subtitleCacheKey), 0);
         }
         if (Jianpian.isJpUrl(vs.url)) {//荐片地址特殊判断

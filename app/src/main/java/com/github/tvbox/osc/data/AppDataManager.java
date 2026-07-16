@@ -41,7 +41,8 @@ public class AppDataManager {
         }
     }
 
-    static final Migration MIGRATION_1_2 = new Migration(1, 2) {
+    // Legacy migration for a database layout that is not used by tvbox.v3.db.
+    static final Migration LEGACY_SOURCE_STATE_MIGRATION_1_2 = new Migration(1, 2) {
         @Override
         public void migrate(SupportSQLiteDatabase database) {
             try {
@@ -49,6 +50,17 @@ public class AppDataManager {
             } catch (SQLiteException e) {
                 e.printStackTrace();
             }
+        }
+    };
+
+    public static final Migration MIGRATION_1_2 = new Migration(1, 2) {
+        @Override
+        public void migrate(SupportSQLiteDatabase database) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS `historySync` (`sourceKey` TEXT NOT NULL, `vodId` TEXT NOT NULL, `dataJson` TEXT, `updatedAt` INTEGER NOT NULL, `deviceId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`sourceKey`, `vodId`))");
+            database.execSQL("CREATE TABLE IF NOT EXISTS `episodeProgressSync` (`originalKey` TEXT NOT NULL, `cacheKey` TEXT NOT NULL, `positionMs` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `deviceId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`originalKey`))");
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_episodeProgressSync_cacheKey` ON `episodeProgressSync` (`cacheKey`)");
+            database.execSQL("INSERT OR IGNORE INTO `historySync` (`sourceKey`, `vodId`, `dataJson`, `updatedAt`, `deviceId`, `deleted`) " +
+                    "SELECT `sourceKey`, `vodId`, `dataJson`, `updateTime`, '', 0 FROM `vodRecord` WHERE `sourceKey` IS NOT NULL AND `vodId` IS NOT NULL");
         }
     };
 
@@ -117,7 +129,7 @@ public class AppDataManager {
         if (dbInstance == null)
             dbInstance = Room.databaseBuilder(App.getInstance(), AppDataBase.class, dbPath())
                     .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
-                    //.addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2)
                     //.addMigrations(MIGRATION_2_3)
                     //.addMigrations(MIGRATION_3_4)
                     //.addMigrations(MIGRATION_4_5)

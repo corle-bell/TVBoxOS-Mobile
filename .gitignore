@@ -98,3 +98,6 @@ lint/tmp/
 /app/release/
 /.idea/
 *.jks
+
+# Local test fixtures and debug logs
+/test/

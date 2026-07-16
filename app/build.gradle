@@ -88,6 +88,7 @@ android {
 
 dependencies {
     api fileTree(dir: "libs", include: ['*.jar', '*.aar'])
+    testImplementation 'junit:junit:4.13.2'
 
     implementation 'com.google.android.material:material:1.4.0'
 
@@ -107,6 +108,7 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:3.12.11'
     annotationProcessor 'androidx.room:room-compiler:2.3.0'
     implementation 'androidx.room:room-runtime:2.3.0'
+    implementation 'androidx.work:work-runtime:2.7.1'
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'com.squareup.okio:okio:2.8.0'
     implementation 'com.github.CymChad:BaseRecyclerViewAdapterHelper:2.9.45-androidx'
@@ -161,8 +163,8 @@ dependencies {
     implementation 'com.hyman:flowlayout-lib:1.1.2'
     //崩溃
     implementation project(":crash")
-    //dlna投屏
-    implementation 'com.github.devin1014.DLNA-Cast:dlna-dmc:V1.0.0'
+    //dlna投屏（JitPack V1.0.0 产物失效，改为本地模块）
+    implementation project(':dlna-dmc')
     // Lifecycles only (without ViewModel or LiveData)
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.2.0"
 }

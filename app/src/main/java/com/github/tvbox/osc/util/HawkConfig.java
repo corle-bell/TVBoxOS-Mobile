@@ -64,4 +64,15 @@ public class HawkConfig {
      * 搜索记录
      */
     public static final String HISTORY_SEARCH = "history_search";
+    public static final String WEBDAV_SYNC_ENABLED = "webdav_sync_enabled";
+    public static final String WEBDAV_SYNC_URL = "webdav_sync_url";
+    public static final String WEBDAV_DEVICE_ID = "webdav_device_id";
+    public static final String WEBDAV_LAST_SYNC_AT = "webdav_last_sync_at";
+    public static final String WEBDAV_LAST_SYNC_ERROR = "webdav_last_sync_error";
+    /** Sync interval index: 0=manual only, 1=15m, 2=1h, 3=6h, 4=24h */
+    public static final String WEBDAV_SYNC_INTERVAL = "webdav_sync_interval";
+    public static final String WEBDAV_WIFI_ONLY = "webdav_wifi_only";
+    public static final String WEBDAV_SYNC_ID = "webdav_sync_id";
+    public static final String WEBDAV_SPACE_DEVICE_COUNT = "webdav_space_device_count";
+    public static final String WEBDAV_SPACE_DEVICE_COUNT_AT = "webdav_space_device_count_at";
 }

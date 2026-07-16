@@ -13,7 +13,18 @@
         app:title="历史记录"
         app:leftTitleSize="16sp"
         app:rightIcon="@drawable/ic_clear"
-        app:lineVisible="false"/>
+        app:lineVisible="false">
+
+        <ImageView
+            android:id="@+id/ivSync"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="50dp"
+            android:contentDescription="同步"
+            android:src="@drawable/ic_sync"
+            app:tint="@color/text_foreground"/>
+    </com.hjq.bar.TitleBar>
 
     <TextView
         android:id="@+id/top_tip"

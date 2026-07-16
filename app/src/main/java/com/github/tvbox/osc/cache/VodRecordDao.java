@@ -21,8 +21,14 @@ public interface VodRecordDao {
     @Query("select * from vodRecord order by updateTime desc limit :size")
     List<VodRecord> getAll(int size);
 
-    @Query("select * from vodRecord where `sourceKey`=:sourceKey and `vodId`=:vodId")
+    @Query("select * from vodRecord where `sourceKey`=:sourceKey and `vodId`=:vodId order by updateTime desc limit 1")
     VodRecord getVodRecord(String sourceKey, String vodId);
+
+    @Query("select * from vodRecord order by updateTime desc")
+    List<VodRecord> exportAll();
+
+    @Query("DELETE FROM vodRecord where `sourceKey`=:sourceKey and `vodId`=:vodId")
+    int deleteByKey(String sourceKey, String vodId);
 
     @Delete
     int delete(VodRecord record);
