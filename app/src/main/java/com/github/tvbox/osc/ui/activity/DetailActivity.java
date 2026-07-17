@@ -68,6 +68,8 @@ import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.ScreenShotListenManager;
 import com.github.tvbox.osc.util.SearchHelper;
 import com.github.tvbox.osc.util.SubtitleHelper;
+import com.github.tvbox.osc.util.TvUiHelper;
+import com.github.tvbox.osc.util.UiModeHelper;
 import com.github.tvbox.osc.util.Utils;
 import com.github.tvbox.osc.viewmodel.SourceViewModel;
 import com.google.gson.Gson;
@@ -177,6 +179,12 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
         mBinding.mGridViewFlag.setHasFixedSize(true);
         seriesFlagAdapter = new SeriesFlagAdapter();
         mBinding.mGridViewFlag.setAdapter(seriesFlagAdapter);
+        if (UiModeHelper.isTvMode()) {
+            TvUiHelper.makeFocusable(mBinding.mGridView);
+            TvUiHelper.makeFocusable(mBinding.mGridViewFlag);
+            findViewById(R.id.ll_title).setFocusable(true);
+            findViewById(R.id.ll_title).setFocusableInTouchMode(true);
+        }
         isReverse = false;
         preFlag = "";
         if (showPreview) {

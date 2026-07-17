@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="tv_nav_width">120dp</dimen>
+    <dimen name="tv_nav_title_size">18sp</dimen>
+    <dimen name="tv_nav_item_size">16sp</dimen>
+    <dimen name="tv_grid_item_height">190dp</dimen>
+    <dimen name="tv_tab_text_size">15sp</dimen>
+    <dimen name="tv_title_text_size">20sp</dimen>
+</resources>

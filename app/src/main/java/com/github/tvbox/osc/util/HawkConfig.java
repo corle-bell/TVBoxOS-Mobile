@@ -75,4 +75,6 @@ public class HawkConfig {
     public static final String WEBDAV_SYNC_ID = "webdav_sync_id";
     public static final String WEBDAV_SPACE_DEVICE_COUNT = "webdav_space_device_count";
     public static final String WEBDAV_SPACE_DEVICE_COUNT_AT = "webdav_space_device_count_at";
+    /** UI mode override: AUTO, MOBILE, TV */
+    public static final String UI_MODE_OVERRIDE = "ui_mode_override";
 }

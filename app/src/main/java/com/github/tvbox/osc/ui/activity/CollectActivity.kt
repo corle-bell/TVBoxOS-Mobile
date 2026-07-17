@@ -33,7 +33,11 @@ class CollectActivity : BaseVbActivity<ActivityCollectBinding>() {
         setLoadSir(mBinding.mGridView)
 
         mBinding.mGridView.setHasFixedSize(true)
-        mBinding.mGridView.setLayoutManager(GridLayoutManager(this, 3))
+        if (com.github.tvbox.osc.util.UiModeHelper.isTvMode()) {
+            com.github.tvbox.osc.util.TvUiHelper.applyRecyclerViewTv(mBinding.mGridView, 5)
+        } else {
+            mBinding.mGridView.setLayoutManager(GridLayoutManager(this, 3))
+        }
         mBinding.mGridView.setAdapter(collectAdapter)
         mBinding.titleBar.rightView.setOnClickListener {
             XPopup.Builder(this)

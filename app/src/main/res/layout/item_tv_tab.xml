@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvTab"
+    android:layout_width="wrap_content"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:paddingHorizontal="16dp"
+    android:textColor="@color/text_foreground"
+    android:textSize="@dimen/tv_tab_text_size"
+    android:focusable="true"
+    android:focusableInTouchMode="true"
+    android:background="@drawable/tv_nav_item_selector" />

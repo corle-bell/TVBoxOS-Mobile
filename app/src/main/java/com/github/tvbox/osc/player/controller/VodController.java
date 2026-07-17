@@ -35,6 +35,7 @@ import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.PlayerHelper;
 import com.github.tvbox.osc.util.ScreenUtils;
 import com.github.tvbox.osc.util.SubtitleHelper;
+import com.github.tvbox.osc.util.UiModeHelper;
 import com.github.tvbox.osc.util.Utils;
 import com.orhanobut.hawk.Hawk;
 import com.owen.tvrecyclerview.widget.TvRecyclerView;
@@ -192,6 +193,7 @@ public class VodController extends BaseController {
     @Override
     protected void initView() {
         super.initView();
+        setGestureEnabled(!UiModeHelper.isTvMode());
         View pip = findViewById(R.id.pip);
         pip.setVisibility((Utils.supportsPiPMode() && Hawk.get(HawkConfig.BACKGROUND_PLAY_TYPE, 0) == 2)?VISIBLE:GONE);
         mMyBatteryView = findViewById(R.id.battery);

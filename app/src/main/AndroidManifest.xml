@@ -67,6 +67,11 @@
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
             android:exported="true"/>
         <activity
+            android:name=".ui.activity.TvMainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout"
+            android:exported="true"
+            android:screenOrientation="landscape" />
+        <activity
             android:name=".ui.activity.LiveActivity"
             android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout"/>

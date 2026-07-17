@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/white"
+    android:orientation="horizontal">
+
+    <LinearLayout
+        android:id="@+id/side_nav"
+        android:layout_width="@dimen/tv_nav_width"
+        android:layout_height="match_parent"
+        android:background="@color/bg_gray"
+        android:orientation="vertical"
+        android:paddingVertical="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingBottom="16dp"
+            android:text="@string/app_name"
+            android:textColor="@color/text_foreground"
+            android:textSize="@dimen/tv_nav_title_size"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/nav_home"
+            style="@style/TvNavItem"
+            android:text="首页" />
+
+        <TextView
+            android:id="@+id/nav_live"
+            style="@style/TvNavItem"
+            android:text="直播" />
+
+        <TextView
+            android:id="@+id/nav_history"
+            style="@style/TvNavItem"
+            android:text="历史" />
+
+        <TextView
+            android:id="@+id/nav_collect"
+            style="@style/TvNavItem"
+            android:text="收藏" />
+
+        <TextView
+            android:id="@+id/nav_local"
+            style="@style/TvNavItem"
+            android:text="本地" />
+
+        <TextView
+            android:id="@+id/nav_setting"
+            style="@style/TvNavItem"
+            android:text="设置" />
+
+        <TextView
+            android:id="@+id/nav_about"
+            style="@style/TvNavItem"
+            android:text="关于" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/content_container"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:focusable="true"
+        android:focusableInTouchMode="true" />
+
+</LinearLayout>

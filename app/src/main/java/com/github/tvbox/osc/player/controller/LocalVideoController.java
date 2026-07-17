@@ -37,6 +37,7 @@ import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.PlayerHelper;
 import com.github.tvbox.osc.util.ScreenUtils;
 import com.github.tvbox.osc.util.SubtitleHelper;
+import com.github.tvbox.osc.util.UiModeHelper;
 import com.orhanobut.hawk.Hawk;
 import com.owen.tvrecyclerview.widget.TvRecyclerView;
 import com.owen.tvrecyclerview.widget.V7LinearLayoutManager;
@@ -163,6 +164,7 @@ public class LocalVideoController extends BaseController {
     @Override
     protected void initView() {
         super.initView();
+        setGestureEnabled(!UiModeHelper.isTvMode());
         findViewById(R.id.pip).setVisibility(GONE);
         findViewById(R.id.cast).setVisibility(GONE);
         mMyBatteryView = findViewById(R.id.battery);

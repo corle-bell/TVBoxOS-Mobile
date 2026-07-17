@@ -25,13 +25,23 @@ import me.jessyan.autosize.utils.AutoSizeUtils;
  */
 public class GridAdapter extends BaseQuickAdapter<Movie.Video, BaseViewHolder> {
 
-    public GridAdapter() {
-        super(R.layout.item_grid, new ArrayList<>());
+    private final boolean tvMode;
 
+    public GridAdapter() {
+        this(false);
+    }
+
+    public GridAdapter(boolean tvMode) {
+        super(tvMode ? R.layout.item_grid_tv : R.layout.item_grid, new ArrayList<>());
+        this.tvMode = tvMode;
     }
 
     @Override
     protected void convert(BaseViewHolder helper, Movie.Video item) {
+        if (tvMode) {
+            helper.itemView.setFocusable(true);
+            helper.itemView.setFocusableInTouchMode(true);
+        }
 
         TextView tvYear = helper.getView(R.id.tvYear);
         if (item.year <= 0) {

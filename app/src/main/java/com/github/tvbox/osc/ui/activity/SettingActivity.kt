@@ -17,15 +17,14 @@ import com.github.tvbox.osc.ui.adapter.SelectDialogAdapter.SelectDialogInterface
 import com.github.tvbox.osc.ui.dialog.BackupDialog
 import com.github.tvbox.osc.ui.dialog.LiveApiDialog
 import com.github.tvbox.osc.ui.dialog.SelectDialog
-import com.github.tvbox.osc.sync.webdav.WebDavSyncUiHelper
-import com.github.tvbox.osc.ui.dialog.WebDavSpaceWizardDialog
-import com.github.tvbox.osc.ui.dialog.WebDavSyncDialog
+import com.github.tvbox.osc.util.WebDavSettingsBinder
 import com.github.tvbox.osc.util.FastClickCheckUtil
 import com.github.tvbox.osc.util.FileUtils
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.OkGoHelper
 import com.github.tvbox.osc.util.PlayerHelper
+import com.github.tvbox.osc.util.UiModeHelper
 import com.github.tvbox.osc.util.Utils
 import com.hjq.permissions.OnPermissionCallback
 import com.hjq.permissions.Permission
@@ -49,6 +48,29 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
     override fun init() {
 
         mBinding.titleBar.leftView.setOnClickListener { onBackPressed() }
+        mBinding.tvUiMode.text = UiModeHelper.getOverrideDisplayName(UiModeHelper.getOverride())
+        mBinding.llUiMode.setOnClickListener { view: View? ->
+            FastClickCheckUtil.check(view)
+            val options = ArrayList(UiModeHelper.overrideLabels.toList())
+            val defaultPos = UiModeHelper.overrideIndex()
+            val dialog = SelectDialog<String>(this@SettingActivity)
+            dialog.setTip("请选择界面模式")
+            dialog.setAdapter(object : SelectDialogInterface<String?> {
+                override fun click(value: String?, pos: Int) {
+                    val mode = when (pos) {
+                        1 -> UiModeHelper.MODE_MOBILE
+                        2 -> UiModeHelper.MODE_TV
+                        else -> UiModeHelper.MODE_AUTO
+                    }
+                    UiModeHelper.setOverride(mode)
+                    mBinding.tvUiMode.text = UiModeHelper.getOverrideDisplayName(mode)
+                    ToastUtils.showShort("重启应用后生效")
+                }
+
+                override fun getDisplay(name: String?): String = name ?: ""
+            }, SelectDialogAdapter.stringDiff, options, defaultPos)
+            dialog.show()
+        }
         mBinding.tvMediaCodec.text = Hawk.get(HawkConfig.IJK_CODEC, "")
 
         mBinding.tvDns.text = OkGoHelper.dnsHttpsList[Hawk.get(HawkConfig.DOH_URL, 0)]
@@ -154,67 +176,19 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
             }
         }
 
-        refreshWebDavStatus()
-        WebDavSyncUiHelper.refreshDeviceCount(false) { count ->
-            runOnUiThread { refreshWebDavStatus() }
-        }
-        mBinding.llWebdavSync.setOnClickListener { v: View? ->
-            FastClickCheckUtil.check(v)
-            XPopup.Builder(mContext)
-                .autoFocusEditText(false)
-                .asCustom(WebDavSyncDialog(this@SettingActivity))
-                .show()
-        }
-        mBinding.llWebdavSync.setOnLongClickListener {
-            val options = arrayListOf("创建同步空间", "加入已有空间")
-            val dialog = SelectDialog<String>(this@SettingActivity)
-            dialog.setTip("同步空间向导")
-            dialog.setAdapter(object : SelectDialogInterface<String?> {
-                override fun click(value: String?, pos: Int) {
-                    val mode = if (pos == 0) {
-                        WebDavSpaceWizardDialog.MODE_CREATE
-                    } else {
-                        WebDavSpaceWizardDialog.MODE_JOIN
-                    }
-                    XPopup.Builder(mContext)
-                        .autoFocusEditText(false)
-                        .asCustom(
-                            WebDavSpaceWizardDialog(this@SettingActivity, mode)
-                                .setOnCompleted { refreshWebDavStatus() }
-                        )
-                        .show()
-                }
+        WebDavSettingsBinder.bind(object : WebDavSettingsBinder.Host {
+            override fun getWebDavSyncRow(): View = mBinding.llWebdavSync
 
-                override fun getDisplay(value: String?): String = value ?: ""
-            }, SelectDialogAdapter.stringDiff, options, 0)
-            dialog.show()
-            true
-        }
-        mBinding.btnWebdavSyncNow.setOnClickListener { v: View? ->
-            FastClickCheckUtil.check(v)
-            WebDavSyncUiHelper.syncNow(this, object : WebDavSyncUiHelper.SyncCallback {
-                override fun onStart() {
-                    mBinding.btnWebdavSyncNow.isEnabled = false
-                    mBinding.tvWebdavSyncStatus.text = "同步中…"
-                }
+            override fun getWebDavSyncStatusView(): android.widget.TextView = mBinding.tvWebdavSyncStatus
 
-                override fun onSuccess(result: com.github.tvbox.osc.sync.webdav.WebDavSyncCoordinator.SyncResult) {
-                    runOnUiThread {
-                        ToastUtils.showShort("同步完成")
-                        mBinding.btnWebdavSyncNow.isEnabled = true
-                        refreshWebDavStatus()
-                    }
-                }
+            override fun getWebDavSyncNowButton(): View = mBinding.btnWebdavSyncNow
 
-                override fun onError(message: String?) {
-                    runOnUiThread {
-                        ToastUtils.showShort("同步失败: $message")
-                        mBinding.btnWebdavSyncNow.isEnabled = true
-                        refreshWebDavStatus()
-                    }
-                }
-            })
-        }
+            override fun getActivity() = this@SettingActivity
+
+            override fun onWebDavStatusChanged() {
+                refreshWebDavStatus()
+            }
+        })
 
         mBinding.llDns.setOnClickListener { v: View? ->
             FastClickCheckUtil.check(v)
@@ -497,10 +471,13 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
 
     override fun onResume() {
         super.onResume()
-        refreshWebDavStatus()
-        WebDavSyncUiHelper.refreshDeviceCount(false) { count ->
-            runOnUiThread { refreshWebDavStatus() }
-        }
+        WebDavSettingsBinder.refreshStatus(object : WebDavSettingsBinder.Host {
+            override fun getWebDavSyncRow(): View = mBinding.llWebdavSync
+            override fun getWebDavSyncStatusView(): android.widget.TextView = mBinding.tvWebdavSyncStatus
+            override fun getWebDavSyncNowButton(): View = mBinding.btnWebdavSyncNow
+            override fun getActivity() = this@SettingActivity
+            override fun onWebDavStatusChanged() {}
+        })
     }
 
     override fun onBackPressed() {
@@ -509,10 +486,11 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
                 0
             ) || currentLiveApi != Hawk.get(HawkConfig.LIVE_URL, "")
         ) { // 首页类型/dns/doh/直播源有更改,需重载页面
-            //AppManager.getInstance().finishAllActivity()
-            if (currentLiveApi == Hawk.get(HawkConfig.LIVE_URL, "")) { //未更改直播源,不需重载api等
-                val bundle = Bundle()
-                bundle.putBoolean(IntentKey.CACHE_CONFIG_CHANGED, true)
+            val bundle = Bundle()
+            bundle.putBoolean(IntentKey.CACHE_CONFIG_CHANGED, true)
+            if (UiModeHelper.isTvMode()) {
+                jumpActivity(TvMainActivity::class.java, bundle)
+            } else if (currentLiveApi == Hawk.get(HawkConfig.LIVE_URL, "")) {
                 jumpActivity(MainActivity::class.java, bundle)
             } else {
                 jumpActivity(MainActivity::class.java)
@@ -524,7 +502,13 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
     }
 
     private fun refreshWebDavStatus() {
-        mBinding.tvWebdavSyncStatus.text = WebDavSyncUiHelper.formatStatusSummary()
+        WebDavSettingsBinder.refreshStatus(object : WebDavSettingsBinder.Host {
+            override fun getWebDavSyncRow(): View = mBinding.llWebdavSync
+            override fun getWebDavSyncStatusView(): android.widget.TextView = mBinding.tvWebdavSyncStatus
+            override fun getWebDavSyncNowButton(): View = mBinding.btnWebdavSyncNow
+            override fun getActivity() = this@SettingActivity
+            override fun onWebDavStatusChanged() {}
+        })
     }
 
     private fun onClickClearCache(v: View) {

@@ -20,6 +20,7 @@ import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.OkGoHelper;
 import com.github.tvbox.osc.util.PlayerHelper;
+import com.github.tvbox.osc.util.UiModeHelper;
 import com.github.tvbox.osc.util.Utils;
 import com.kingja.loadsir.core.LoadSir;
 import com.orhanobut.hawk.Hawk;
@@ -70,6 +71,11 @@ public class App extends MultiDexApplication {
                 .setSupportDP(false)
                 .setSupportSP(false)
                 .setSupportSubunits(Subunits.MM);
+        if (UiModeHelper.isTvMode()) {
+            AutoSizeConfig.getInstance()
+                    .setDesignWidthInDp(960)
+                    .setDesignHeightInDp(540);
+        }
         PlayerHelper.init();
         QuickJSLoader.init();
         FileUtils.cleanPlayerCache();

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/tvVersion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="16dp"
+            android:textColor="@color/text_foreground"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/tvLive"
+            style="@style/TvMenuItem"
+            android:text="电视直播" />
+
+        <TextView
+            android:id="@+id/tvSetting"
+            style="@style/TvMenuItem"
+            android:text="设置" />
+
+        <TextView
+            android:id="@+id/tvHistory"
+            style="@style/TvMenuItem"
+            android:text="历史记录" />
+
+        <TextView
+            android:id="@+id/tvFavorite"
+            style="@style/TvMenuItem"
+            android:text="收藏" />
+
+        <TextView
+            android:id="@+id/tvLocal"
+            style="@style/TvMenuItem"
+            android:text="本地视频" />
+
+        <TextView
+            android:id="@+id/llSubscription"
+            style="@style/TvMenuItem"
+            android:text="订阅管理" />
+
+        <TextView
+            android:id="@+id/llAbout"
+            style="@style/TvMenuItem"
+            android:text="关于" />
+
+        <TextView
+            android:id="@+id/addrPlay"
+            style="@style/TvMenuItem"
+            android:text="推送播放" />
+    </LinearLayout>
+</ScrollView>

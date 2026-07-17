@@ -37,7 +37,16 @@ class HistoryActivity : BaseVbActivity<ActivityHistoryBinding>() {
         setLoadSir(mBinding.mGridView)
 
         mBinding.mGridView.setHasFixedSize(true)
-        mBinding.mGridView.setLayoutManager(GridLayoutManager(this, 3))
+        if (com.github.tvbox.osc.util.UiModeHelper.isTvMode()) {
+            com.github.tvbox.osc.util.TvUiHelper.applyRecyclerViewTv(
+                mBinding.mGridView,
+                com.github.tvbox.osc.util.TvUiHelper.historySpanCount()
+            )
+            mBinding.ivSync.isFocusable = true
+            mBinding.ivSync.isFocusableInTouchMode = true
+        } else {
+            mBinding.mGridView.setLayoutManager(GridLayoutManager(this, 3))
+        }
         historyAdapter = HistoryAdapter()
         mBinding.mGridView.setAdapter(historyAdapter)
 

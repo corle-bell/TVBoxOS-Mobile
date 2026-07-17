@@ -23,6 +23,7 @@ import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.ui.activity.DetailActivity;
 import com.github.tvbox.osc.util.AppManager;
 import com.github.tvbox.osc.util.HawkConfig;
+import com.github.tvbox.osc.util.UiModeHelper;
 import com.github.tvbox.osc.util.Utils;
 import com.gyf.immersionbar.ImmersionBar;
 import com.hjq.bar.OnTitleBarListener;
@@ -79,6 +80,9 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomAd
 
 
     private void initStatusBar(){
+        if (UiModeHelper.isTvMode()) {
+            return;
+        }
         ImmersionBar.with(this)
                 .statusBarDarkFont(!Utils.isDarkTheme())
                 .titleBar(findTitleBar(getWindow().getDecorView().findViewById(android.R.id.content)))
@@ -204,6 +208,9 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomAd
 
     @Override
     public float getSizeInDp() {
+        if (UiModeHelper.isTvMode()) {
+            return isBaseOnWidth() ? 960 : 540;
+        }
         return isBaseOnWidth() ? 360 : 720;
     }
 

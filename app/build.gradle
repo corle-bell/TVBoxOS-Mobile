@@ -25,12 +25,22 @@ android {
 
     }
 
+    flavorDimensions "device"
+    productFlavors {
+        mobile {
+            dimension "device"
+        }
+        tv {
+            dimension "device"
+        }
+    }
+
     // 执行配置
     applicationVariants.all { variant ->
 
         // Apk 输出配置
         variant.outputs.all { output ->
-            outputFileName = 'MBox_v' + variant.versionName + '_' + variant.buildType.name
+            outputFileName = 'MBox_v' + variant.versionName + '_' + variant.productFlavors[0].name + '_' + variant.buildType.name
             if (variant.buildType.name == buildTypes.release.getName()) {
                 outputFileName += '_' + new Date().format("yyyyMMdd")
             }

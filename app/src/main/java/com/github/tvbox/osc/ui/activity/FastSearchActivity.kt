@@ -120,7 +120,13 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
                 }
         }
         mBinding.mGridView.setHasFixedSize(true)
-        mBinding.mGridView.setLayoutManager(LinearLayoutManager(this))
+        if (com.github.tvbox.osc.util.UiModeHelper.isTvMode()) {
+            com.github.tvbox.osc.util.TvUiHelper.applyRecyclerViewTv(mBinding.mGridView, 1)
+            mBinding.etSearch.isFocusable = true
+            mBinding.etSearch.isFocusableInTouchMode = true
+        } else {
+            mBinding.mGridView.setLayoutManager(LinearLayoutManager(this))
+        }
         mBinding.mGridView.adapter = searchAdapter
         searchAdapter.setOnItemClickListener { _, view, position ->
             FastClickCheckUtil.check(view)
@@ -139,7 +145,13 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
             bundle.putString("sourceKey", video.sourceKey)
             jumpActivity(DetailActivity::class.java, bundle)
         }
-        mBinding.mGridViewFilter.setLayoutManager(LinearLayoutManager(this))
+        mBinding.mGridViewFilter.setLayoutManager(
+            if (com.github.tvbox.osc.util.UiModeHelper.isTvMode()) {
+                com.owen.tvrecyclerview.widget.V7LinearLayoutManager(this)
+            } else {
+                LinearLayoutManager(this)
+            }
+        )
 
         mBinding.mGridViewFilter.adapter = searchAdapterFilter
         searchAdapterFilter.setOnItemClickListener { _, view, position ->
