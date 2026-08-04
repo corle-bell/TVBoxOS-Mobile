@@ -22,6 +22,7 @@ import com.github.tvbox.osc.ui.activity.SubscriptionActivity;
 import com.github.tvbox.osc.ui.dialog.AboutDialog;
 import com.github.tvbox.osc.util.FastClickCheckUtil;
 import com.github.tvbox.osc.util.Utils;
+import com.github.tvbox.osc.share.PlayShareHelper;
 import com.hjq.permissions.OnPermissionCallback;
 import com.hjq.permissions.Permission;
 import com.hjq.permissions.XXPermissions;
@@ -55,6 +56,10 @@ public class MyFragment extends BaseVbFragment<FragmentMyBinding> {
                         }
                     }, null, R.layout.dialog_input).show();
         });
+
+        mBinding.llShareOpen.setOnClickListener(v ->
+                PlayShareHelper.openFromClipboard(getContext()));
+
         //mBinding.tvLive.setOnClickListener(v -> jumpActivity(LivePlayActivity.class));
         mBinding.tvLive.setOnClickListener(v -> jumpActivity(LiveActivity.class));
 

@@ -71,6 +71,9 @@ import com.github.tvbox.osc.util.SubtitleHelper;
 import com.github.tvbox.osc.util.TvUiHelper;
 import com.github.tvbox.osc.util.UiModeHelper;
 import com.github.tvbox.osc.util.Utils;
+import com.github.tvbox.osc.util.MD5;
+import com.github.tvbox.osc.share.PlayShareHelper;
+import com.github.tvbox.osc.share.PlaySharePayload;
 import com.github.tvbox.osc.viewmodel.SourceViewModel;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -140,6 +143,12 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
      * 截屏监听
      */
     ScreenShotListenManager screenShotListenManager;
+
+    private String sharePlayFlag;
+    private int sharePlayIndex = -1;
+    private long sharePositionMs = -1;
+    private String sharePlayerCfg;
+    private boolean shareAutoPlay;
 
     @Override
     protected void init() {
@@ -498,8 +507,14 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
                         mBinding.mEmptyPlaylist.setVisibility(View.GONE);
 
                         VodInfo vodInfoRecord = RoomDataManger.getVodInfo(sourceKey, vodId);
-                        // 读取历史记录
-                        if (vodInfoRecord != null) {
+                        // 读取历史记录；分享进入时以分享参数为准
+                        if (hasShareState()) {
+                            vodInfo.playIndex = 0;
+                            vodInfo.playFlag = null;
+                            vodInfo.playerCfg = "";
+                            vodInfo.reverseSort = false;
+                            applyShareState();
+                        } else if (vodInfoRecord != null) {
                             vodInfo.playIndex = Math.max(vodInfoRecord.playIndex, 0);
                             vodInfo.playFlag = vodInfoRecord.playFlag;
                             vodInfo.playerCfg = vodInfoRecord.playerCfg;
@@ -533,7 +548,13 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
                         mBinding.mGridViewFlag.scrollToPosition(flagScrollTo);
 
                         refreshList();
-                        if (showPreview) {
+                        if (shareAutoPlay) {
+                            ensurePlayFragment();
+                            seedShareProgress();
+                            jumpToPlay();
+                            mBinding.previewPlayer.setVisibility(View.VISIBLE);
+                            toggleSubtitleTextSize();
+                        } else if (showPreview) {
                             jumpToPlay();
                             mBinding.previewPlayer.setVisibility(View.VISIBLE);
                             toggleSubtitleTextSize();
@@ -563,8 +584,72 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
         Intent intent = getIntent();
         if (intent != null && intent.getExtras() != null) {
             Bundle bundle = intent.getExtras();
+            readShareExtras(bundle);
             loadDetail(bundle.getString("id", null), bundle.getString("sourceKey", ""));
         }
+    }
+
+    private void readShareExtras(Bundle bundle) {
+        if (bundle == null) {
+            return;
+        }
+        sharePlayFlag = bundle.getString(IntentKey.SHARE_PLAY_FLAG, null);
+        sharePlayIndex = bundle.containsKey(IntentKey.SHARE_PLAY_INDEX)
+                ? bundle.getInt(IntentKey.SHARE_PLAY_INDEX, 0) : -1;
+        sharePositionMs = bundle.getLong(IntentKey.SHARE_POSITION_MS, -1L);
+        sharePlayerCfg = bundle.getString(IntentKey.SHARE_PLAYER_CFG, null);
+        shareAutoPlay = bundle.getBoolean(IntentKey.SHARE_AUTO_PLAY, false);
+    }
+
+    private boolean hasShareState() {
+        return shareAutoPlay || sharePlayIndex >= 0 || !TextUtils.isEmpty(sharePlayFlag)
+                || sharePositionMs > 0 || !TextUtils.isEmpty(sharePlayerCfg);
+    }
+
+    private void applyShareState() {
+        if (sharePlayIndex >= 0) {
+            vodInfo.playIndex = sharePlayIndex;
+        }
+        if (!TextUtils.isEmpty(sharePlayFlag) && vodInfo.seriesMap.containsKey(sharePlayFlag)) {
+            vodInfo.playFlag = sharePlayFlag;
+        }
+        if (!TextUtils.isEmpty(sharePlayerCfg)) {
+            vodInfo.playerCfg = sharePlayerCfg;
+        }
+    }
+
+    private void ensurePlayFragment() {
+        if (playFragment != null) {
+            return;
+        }
+        playFragment = new PlayFragment();
+        getSupportFragmentManager().beginTransaction().add(R.id.previewPlayer, playFragment).commit();
+        getSupportFragmentManager().beginTransaction().show(playFragment).commitAllowingStateLoss();
+        mBinding.previewPlayerPlace.setVisibility(View.VISIBLE);
+    }
+
+    private void seedShareProgress() {
+        if (sharePositionMs <= 0 || vodInfo == null || TextUtils.isEmpty(sourceKey) || TextUtils.isEmpty(vodId)) {
+            return;
+        }
+        try {
+            VodInfo.VodSeries vs = vodInfo.seriesMap.get(vodInfo.playFlag).get(vodInfo.playIndex);
+            String progressKey = sourceKey + vodId + vodInfo.playFlag + vodInfo.playIndex + vs.name;
+            RoomDataManger.saveEpisodeProgress(progressKey, MD5.string2MD5(progressKey), sharePositionMs);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public void shareCurrentVod() {
+        if (vodInfo == null || TextUtils.isEmpty(vodInfo.id)) {
+            ToastUtils.showShort("暂无可分享内容");
+            return;
+        }
+        long positionMs = 0L;
+        if (playFragment != null && playFragment.getPlayer() != null) {
+            positionMs = playFragment.getPlayer().getCurrentPosition();
+        }
+        PlayShareHelper.copyShare(this, PlaySharePayload.fromVod(vodInfo, positionMs));
     }
 
     private void loadDetail(String vid, String key) {
@@ -579,6 +664,16 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
             } else {
                 mBinding.tvCollect.setText("加入收藏");
             }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.getExtras() != null) {
+            readShareExtras(intent.getExtras());
+            loadDetail(intent.getStringExtra("id"), intent.getStringExtra("sourceKey"));
         }
     }
 

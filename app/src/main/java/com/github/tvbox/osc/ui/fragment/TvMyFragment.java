@@ -18,6 +18,7 @@ import com.github.tvbox.osc.ui.activity.MovieFoldersActivity;
 import com.github.tvbox.osc.ui.activity.SettingActivity;
 import com.github.tvbox.osc.ui.activity.SubscriptionActivity;
 import com.github.tvbox.osc.util.DialogHelper;
+import com.github.tvbox.osc.share.PlayShareHelper;
 import com.hjq.permissions.OnPermissionCallback;
 import com.hjq.permissions.Permission;
 import com.hjq.permissions.XXPermissions;
@@ -48,6 +49,9 @@ public class TvMyFragment extends BaseLazyFragment {
                         startActivity(newIntent);
                     }
                 }));
+
+        findViewById(R.id.llShareOpen).setOnClickListener(v ->
+                PlayShareHelper.openFromClipboard(mContext));
 
         findViewById(R.id.tvLive).setOnClickListener(v -> jumpActivity(LiveActivity.class));
         findViewById(R.id.tvSetting).setOnClickListener(v -> jumpActivity(SettingActivity.class));

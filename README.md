@@ -36,3 +36,7 @@
 | 首页浏览/详情/播放 | 必测 | 必测 |
 | 直播 D-pad | — | 必测 |
 | WebDAV 配置与同步 | 必测 | 必测 |
+
+### 环境
+SDK E:\android-sdk-windows\android-sdk-windows
+Gradle E:\Gradels

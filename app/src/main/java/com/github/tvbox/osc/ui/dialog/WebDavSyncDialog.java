@@ -1,7 +1,6 @@
 package com.github.tvbox.osc.ui.dialog;
 
 import android.content.Context;
-import android.graphics.Bitmap;
 import android.text.TextUtils;
 import android.view.View;
 
@@ -18,7 +17,6 @@ import com.github.tvbox.osc.sync.webdav.WebDavSyncId;
 import com.github.tvbox.osc.sync.webdav.WebDavSyncScheduler;
 import com.github.tvbox.osc.sync.webdav.WebDavSyncUiHelper;
 import com.github.tvbox.osc.ui.adapter.SelectDialogAdapter;
-import com.github.tvbox.osc.ui.tv.QRCodeGen;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.lxj.xpopup.XPopup;
 import com.lxj.xpopup.core.CenterPopupView;
@@ -35,7 +33,6 @@ public class WebDavSyncDialog extends CenterPopupView {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private int intervalIndex;
     private String savedSyncId = "";
-    private boolean inviteQrExpanded;
     private String invitePayload = "";
 
     public WebDavSyncDialog(@NonNull Context context) {
@@ -76,7 +73,6 @@ public class WebDavSyncDialog extends CenterPopupView {
 
         mBinding.btnGenerateSyncId.setOnClickListener(v ->
                 mBinding.etSyncId.setText(WebDavSyncId.generate()));
-        mBinding.btnToggleInvite.setOnClickListener(v -> toggleInviteQr());
         mBinding.btnCopyInvite.setOnClickListener(v -> {
             String url = textOf(mBinding.etUrl);
             String syncId = textOf(mBinding.etSyncId);
@@ -84,6 +80,17 @@ public class WebDavSyncDialog extends CenterPopupView {
                 WebDavSyncUiHelper.copyInvite(getContext(), url, syncId);
             } else {
                 ToastUtils.showShort("请先填写 WebDAV 地址与有效空间 ID");
+            }
+        });
+        mBinding.btnImportInvite.setOnClickListener(v -> {
+            String clip = WebDavSyncUiHelper.readClipboard(getContext());
+            WebDavSpaceInvite invite = WebDavSpaceInvite.parse(clip);
+            if (invite != null && invite.isValid()) {
+                mBinding.etUrl.setText(invite.url);
+                mBinding.etSyncId.setText(invite.syncId);
+                ToastUtils.showShort("已导入地址与空间 ID");
+            } else {
+                ToastUtils.showShort("粘贴板无有效邀请信息");
             }
         });
         mBinding.llInterval.setOnClickListener(v -> showIntervalPicker());
@@ -117,23 +124,6 @@ public class WebDavSyncDialog extends CenterPopupView {
             }
             runSync();
         });
-    }
-
-    private void toggleInviteQr() {
-        if (TextUtils.isEmpty(invitePayload)) {
-            ToastUtils.showShort("请先填写 WebDAV 地址与有效空间 ID");
-            return;
-        }
-        inviteQrExpanded = !inviteQrExpanded;
-        if (inviteQrExpanded) {
-            Bitmap bitmap = QRCodeGen.generateBitmap(invitePayload, 420, 420, 1);
-            mBinding.ivInviteQr.setImageBitmap(bitmap);
-            mBinding.llInviteQr.setVisibility(View.VISIBLE);
-            mBinding.btnToggleInvite.setText("收起二维码");
-        } else {
-            mBinding.llInviteQr.setVisibility(View.GONE);
-            mBinding.btnToggleInvite.setText("显示邀请二维码");
-        }
     }
 
     private void runSync() {
@@ -272,17 +262,9 @@ public class WebDavSyncDialog extends CenterPopupView {
         String syncId = textOf(mBinding.etSyncId);
         if (TextUtils.isEmpty(url) || !WebDavSyncId.isValid(syncId)) {
             invitePayload = "";
-            inviteQrExpanded = false;
-            mBinding.llInvite.setVisibility(View.GONE);
-            mBinding.llInviteQr.setVisibility(View.GONE);
             return;
         }
         invitePayload = WebDavSpaceInvite.encode(url, syncId);
-        mBinding.llInvite.setVisibility(View.VISIBLE);
-        if (!inviteQrExpanded) {
-            mBinding.llInviteQr.setVisibility(View.GONE);
-            mBinding.btnToggleInvite.setText("显示邀请二维码");
-        }
     }
 
     private void refreshDeviceCountIfStale() {

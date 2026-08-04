@@ -109,6 +109,7 @@ public class PlayingControlRightDialog extends DrawerPopupView {
         mBinding.subtitle.setOnClickListener(view -> dismissWith(() -> changeAndUpdateText(null,mController.mZimuBtn)));
         mBinding.voice.setOnClickListener(view -> dismissWith(() -> changeAndUpdateText(null,mController.mAudioTrackBtn)));
         mBinding.download.setOnClickListener(view -> dismissWith(mDetailActivity::use1DMDownload));
+        mBinding.share.setOnClickListener(view -> dismissWith(mDetailActivity::shareCurrentVod));
     }
 
     private void updateSkipText(boolean start){

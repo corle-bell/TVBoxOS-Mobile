@@ -64,6 +64,7 @@ public class VideoDetailDialog extends BottomPopupView {
             ClipboardUtils.copyText(mActivity.getCurrentVodUrl());
             ToastUtils.showLong("已复制");
         });
+        binding.tvShare.setOnClickListener(view -> mActivity.shareCurrentVod());
         String picUrl = DefaultConfig.checkReplaceProxy(mVideo.pic);
         if (!TextUtils.isEmpty(picUrl)){
             Picasso.get()

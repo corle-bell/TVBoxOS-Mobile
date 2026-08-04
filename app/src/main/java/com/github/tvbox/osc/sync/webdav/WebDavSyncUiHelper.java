@@ -126,6 +126,16 @@ public final class WebDavSyncUiHelper {
         return sb.toString();
     }
 
+    public static String readClipboard(Context context) {
+        if (context == null) return null;
+        ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm == null) return null;
+        ClipData clip = cm.getPrimaryClip();
+        if (clip == null || clip.getItemCount() == 0) return null;
+        CharSequence text = clip.getItemAt(0).coerceToText(context);
+        return text == null ? null : text.toString().trim();
+    }
+
     public static void copyInvite(Context context, String url, String syncId) {
         String payload = WebDavSpaceInvite.encode(url, syncId);
         ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
