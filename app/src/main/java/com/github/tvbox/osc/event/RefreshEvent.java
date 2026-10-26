@@ -22,6 +22,7 @@ public class RefreshEvent {
     public static final int TYPE_FILTER_CHANGE = 13;
     public static final int TYPE_BATTERY_CHANGE = 14;
     public static final int TYPE_REFRESH_NOTIFY = 15;
+    public static final int TYPE_DOWNLOAD_UPDATE = 16;
 
     public int type;
     public Object obj;

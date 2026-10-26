@@ -11,6 +11,7 @@ import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.callback.EmptyCallback;
 import com.github.tvbox.osc.callback.LoadingCallback;
 import com.github.tvbox.osc.data.AppDataManager;
+import com.github.tvbox.osc.download.VideoDownloadManager;
 import com.github.tvbox.osc.server.ControlManager;
 import com.github.tvbox.osc.sync.webdav.WebDavSyncScheduler;
 import com.github.tvbox.osc.ui.activity.MainActivity;
@@ -52,6 +53,7 @@ public class App extends MultiDexApplication {
         super.onCreate();
         instance = this;
         initParams();
+        VideoDownloadManager.get().resetInterrupted();
         // OKGo
         OkGoHelper.init(); //台标获取
         EpgUtil.init();

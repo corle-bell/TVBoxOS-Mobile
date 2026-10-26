@@ -10,10 +10,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.graphics.drawable.Icon;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -25,7 +22,6 @@ import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import androidx.annotation.RequiresApi;
-import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 
@@ -50,6 +46,7 @@ import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.cache.RoomDataManger;
 import com.github.tvbox.osc.constant.IntentKey;
 import com.github.tvbox.osc.databinding.ActivityDetailBinding;
+import com.github.tvbox.osc.download.VideoDownloadManager;
 import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.receiver.BatteryReceiver;
 import com.github.tvbox.osc.service.PlayService;
@@ -212,7 +209,7 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
         findViewById(R.id.tvDownload).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                use1DMDownload();
+                startDownload();
             }
         });
         mBinding.tvSort.setOnClickListener(new View.OnClickListener() {
@@ -935,43 +932,36 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
         EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_SUBTITLE_SIZE_CHANGE, subtitleTextSize));
     }
 
-    public void use1DMDownload() {
-        if (vodInfo != null && vodInfo.seriesMap.get(vodInfo.playFlag).size() > 0) {
-            VodInfo.VodSeries vod = vodInfo.seriesMap.get(vodInfo.playFlag).get(vodInfo.playIndex);
-            String url = TextUtils.isEmpty(playFragment.getFinalUrl()) ? vod.url : playFragment.getFinalUrl();
-            // 创建Intent对象，启动1DM App
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            intent.setDataAndType(Uri.parse(url), "video/mp4");
-            intent.putExtra("title", vodInfo.name + " " + vod.name); // 传入文件保存名
-//            intent.setClassName("idm.internet.download.manager.plus", "idm.internet.download.manager.MainActivity");
-            intent.setClassName("idm.internet.download.manager.plus", "idm.internet.download.manager.Downloader");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-            // 检查1DM App是否已安装
-            PackageManager pm = getPackageManager();
-            List<ResolveInfo> activities = pm.queryIntentActivities(intent, 0);
-            boolean isIntentSafe = activities.size() > 0;
-
-            if (isIntentSafe) {
-                startActivity(intent); // 启动1DM App
-            } else {
-                // 如果1DM App未安装，提示用户安装1DM App
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle("请先安装1DM+下载管理器");
-                builder.setMessage("为了下载视频，请先安装1DM+下载管理器。是否现在安装？");
-                builder.setPositiveButton("立即下载", new DialogInterface.OnClickListener() {
-
-                    public void onClick(DialogInterface dialog, int which) {
-                        // 跳转到下载链接
-                        Intent downloadIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://od.lk/d/MzRfMTg0NTcxMDdf/1DM _v15.6.apk"));
-                        startActivity(downloadIntent);
-                    }
-                });
-                builder.setNegativeButton("取消", null);
-                builder.show();
-            }
-        } else {
+    public void startDownload() {
+        List<VodInfo.VodSeries> series = vodInfo == null || vodInfo.seriesMap == null ? null : vodInfo.seriesMap.get(vodInfo.playFlag);
+        if (series == null || series.isEmpty() || vodInfo.playIndex < 0 || vodInfo.playIndex >= series.size()) {
             ToastUtils.showShort("资源异常,请稍后重试");
+            return;
+        }
+        VodInfo.VodSeries vod = series.get(vodInfo.playIndex);
+        String url = playFragment == null ? "" : playFragment.getFinalUrl();
+        if (TextUtils.isEmpty(url)) url = vod.url;
+        if (TextUtils.isEmpty(url)) {
+            ToastUtils.showShort("该资源不支持下载");
+            return;
+        }
+        String lower = url.toLowerCase();
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            ToastUtils.showShort("该资源不支持下载");
+            return;
+        }
+        String name = vodInfo.name == null ? "" : vodInfo.name;
+        String episode = vod.name == null ? "" : vod.name;
+        String title = (name + " " + episode).trim();
+        String seriesKey = (vodInfo.sourceKey == null ? "" : vodInfo.sourceKey) + ":" + (vodInfo.id == null ? name : vodInfo.id);
+        int result = VideoDownloadManager.get().enqueue(title, url, playFragment == null ? null : playFragment.getFinalHeaders(),
+                seriesKey, name, episode, vodInfo.playIndex);
+        if (result == VideoDownloadManager.DUPLICATE) {
+            ToastUtils.showShort("已在下载列表中");
+        } else if (result == VideoDownloadManager.RESUMED) {
+            ToastUtils.showShort("已继续下载");
+        } else {
+            ToastUtils.showShort("已加入下载，可在「我的下载」查看");
         }
     }
 

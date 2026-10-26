@@ -135,6 +135,7 @@ public class PlayFragment extends BaseLazyFragment {
      * 记录当前播放url
      */
     private String mCurrentUrl;
+    private HashMap<String, String> mCurrentHeaders;
     private boolean mFullWindows;
     /**
      * 非全屏下的设置弹窗
@@ -747,6 +748,7 @@ public class PlayFragment extends BaseLazyFragment {
 
     void playUrl(String url, HashMap<String, String> headers) {
         mCurrentUrl = url;
+        mCurrentHeaders = headers == null ? null : new HashMap<>(headers);
         if (!Hawk.get(HawkConfig.VIDEO_PURIFY, true)) {
             startPlayUrl(url, headers);
             return;
@@ -1629,6 +1631,11 @@ public class PlayFragment extends BaseLazyFragment {
 
     public String getFinalUrl(){
         return TextUtils.isEmpty(mCurrentUrl) || !RegexUtils.isURL(mCurrentUrl) ?"":mCurrentUrl;
+    }
+
+    public HashMap<String, String> getFinalHeaders() {
+        if (mCurrentHeaders == null || mCurrentHeaders.isEmpty()) return null;
+        return new HashMap<>(mCurrentHeaders);
     }
 
     boolean checkVideoFormat(String url) {

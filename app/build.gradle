@@ -31,7 +31,8 @@ android {
         tv {
             dimension "device"
             ndk {
-                abiFilters "armeabi-v7a"
+                // 兼容 32 位老盒子与仅 64 位的新电视，避免 INSTALL_FAILED_NO_MATCHING_ABIS
+                abiFilters "armeabi-v7a", "arm64-v8a"
             }
         }
     }
@@ -46,6 +47,20 @@ android {
                 outputFileName += '_' + new Date().format("yyyyMMdd")
             }
             outputFileName += '.apk'
+        }
+
+        // AGP 7.2 只会把未压缩的 .so 按 4KB 对齐。16KB 页设备要求 16KB zip 对齐。
+        variant.packageApplicationProvider.configure { pkg ->
+            pkg.doLast {
+                def buildToolsDir = newestBuildToolsDir()
+                if (buildToolsDir == null) {
+                    throw new GradleException("未找到 build-tools 35 或更高版本，无法做 16KB 对齐")
+                }
+                def outDir = pkg.outputDirectory.get().asFile
+                variant.outputs.each { output ->
+                    alignApk16k(new File(outDir, output.outputFileName), buildToolsDir, variant.signingConfig)
+                }
+            }
         }
     }
 
@@ -114,7 +129,7 @@ dependencies {
     implementation 'androidx.recyclerview:recyclerview:1.2.1'
     implementation files('libs/thunder.jar')
     implementation files('libs/commons-lang3-3.12.0.jar')
-    implementation 'org.conscrypt:conscrypt-android:2.5.2'
+    implementation 'org.conscrypt:conscrypt-android:2.5.3'
 
     implementation 'com.squareup.okhttp3:okhttp:3.12.11'
     annotationProcessor 'androidx.room:room-compiler:2.3.0'
@@ -178,4 +193,75 @@ dependencies {
     implementation project(':dlna-dmc')
     // Lifecycles only (without ViewModel or LiveData)
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.2.0"
+}
+
+def newestBuildToolsDir() {
+    def sdkDir = System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME")
+    if (sdkDir == null || !new File(sdkDir).isDirectory()) {
+        def propsFile = rootProject.file("local.properties")
+        if (propsFile.exists()) {
+            def props = new Properties()
+            propsFile.withInputStream { props.load(it) }
+            sdkDir = props.getProperty("sdk.dir")
+        }
+    }
+    def toolsRoot = sdkDir == null ? null : new File(sdkDir, "build-tools")
+    if (toolsRoot == null || !toolsRoot.isDirectory()) return null
+    def candidates = toolsRoot.listFiles().findAll { dir ->
+        if (!dir.isDirectory()) return false
+        def major = dir.name.tokenize('.')[0]
+        return major.isInteger() && major.toInteger() >= 35 && new File(dir, "zipalign.exe").exists()
+    }
+    if (candidates.isEmpty()) return null
+    return candidates.sort { a, b ->
+        def pa = a.name.tokenize('.').collect { it.isInteger() ? it.toInteger() : 0 }
+        def pb = b.name.tokenize('.').collect { it.isInteger() ? it.toInteger() : 0 }
+        int size = Math.max(pa.size(), pb.size())
+        for (int i = 0; i < size; i++) {
+            int va = i < pa.size() ? pa[i] : 0
+            int vb = i < pb.size() ? pb[i] : 0
+            if (va != vb) return va <=> vb
+        }
+        return 0
+    }.last()
+}
+
+def alignApk16k(File apk, File buildToolsDir, signingConfig) {
+    if (apk == null || !apk.exists()) {
+        throw new GradleException("找不到待对齐的 APK: ${apk}")
+    }
+    if (signingConfig == null || signingConfig.storeFile == null) {
+        throw new GradleException("16KB 对齐后需要重新签名，但当前变体没有签名配置")
+    }
+    def unaligned = new File(apk.parentFile, apk.name + ".unaligned")
+    def aligned = new File(apk.parentFile, apk.name + ".aligned")
+    if (unaligned.exists()) unaligned.delete()
+    if (aligned.exists()) aligned.delete()
+    if (!apk.renameTo(unaligned)) {
+        throw new GradleException("无法准备 16KB 对齐: ${apk}")
+    }
+    try {
+        exec {
+            commandLine new File(buildToolsDir, "zipalign.exe").absolutePath, "-f", "-P", "16", "4", unaligned.absolutePath, aligned.absolutePath
+        }
+        exec {
+            commandLine "cmd", "/c", new File(buildToolsDir, "apksigner.bat").absolutePath, "sign",
+                    "--ks", signingConfig.storeFile.absolutePath,
+                    "--ks-key-alias", signingConfig.keyAlias,
+                    "--ks-pass", "pass:${signingConfig.storePassword}",
+                    "--key-pass", "pass:${signingConfig.keyPassword}",
+                    "--out", apk.absolutePath,
+                    aligned.absolutePath
+        }
+    } catch (Exception error) {
+        if (!apk.exists() && unaligned.exists()) {
+            unaligned.renameTo(apk)
+        }
+        throw error
+    } finally {
+        unaligned.delete()
+        aligned.delete()
+        def idsig = new File(apk.parentFile, apk.name + ".idsig")
+        if (idsig.exists()) idsig.delete()
+    }
 }

@@ -35,7 +35,11 @@ dependencies {
     api "com.google.android.exoplayer:exoplayer-dash:$exoplayerVersion"
     api "com.google.android.exoplayer:exoplayer-hls:$exoplayerVersion"
     api "com.google.android.exoplayer:exoplayer-rtsp:$exoplayerVersion"
-    api "com.google.android.exoplayer:extension-rtmp:$exoplayerVersion"
+    api("com.google.android.exoplayer:extension-rtmp:$exoplayerVersion") {
+        exclude group: "io.antmedia", module: "rtmp-client"
+    }
+    // io.antmedia:rtmp-client 3.2.0 ships 4KB-aligned librtmp-jni.so; this build is 16KB-aligned
+    api "com.github.mcxinyu:LibRtmp-Client-for-Android:v3.2.0.m2"
     implementation 'com.squareup.okhttp3:okhttp:3.12.11'
     api 'xyz.doikki.android.dkplayer:dkplayer-ui:3.3.5'
 }

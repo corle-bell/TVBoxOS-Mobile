@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.github.tvbox.osc">
-    <!-- 在 Android 11 中，应用程序需要声明它们要使用的其他应用程序的包名 -->
-    <queries>
-        <package android:name="idm.internet.download.manager.plus" />
-    </queries>
 
     <uses-feature
         android:name="android.software.leanback"
@@ -91,6 +87,14 @@
             android:name=".ui.activity.HistoryActivity"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
+            android:name=".ui.activity.DownloadsActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false" />
+        <activity
+            android:name=".ui.activity.DownloadEpisodesActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false" />
+        <activity
             android:name=".ui.activity.CollectActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
 
@@ -121,6 +125,10 @@
             android:name=".service.PlayService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <service
+            android:name=".download.DownloadService"
+            android:exported="false" />
 
         <!-- autosize设计尺寸 -->
         <meta-data

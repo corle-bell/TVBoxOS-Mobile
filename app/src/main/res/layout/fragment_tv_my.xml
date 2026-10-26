@@ -39,6 +39,11 @@
             android:text="收藏" />
 
         <TextView
+            android:id="@+id/tvDownloads"
+            style="@style/TvMenuItem"
+            android:text="我的下载" />
+
+        <TextView
             android:id="@+id/tvLocal"
             style="@style/TvMenuItem"
             android:text="本地视频" />

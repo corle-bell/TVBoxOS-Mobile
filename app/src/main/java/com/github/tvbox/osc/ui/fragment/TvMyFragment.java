@@ -12,6 +12,7 @@ import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.base.BaseLazyFragment;
 import com.github.tvbox.osc.ui.activity.CollectActivity;
 import com.github.tvbox.osc.ui.activity.DetailActivity;
+import com.github.tvbox.osc.ui.activity.DownloadsActivity;
 import com.github.tvbox.osc.ui.activity.HistoryActivity;
 import com.github.tvbox.osc.ui.activity.LiveActivity;
 import com.github.tvbox.osc.ui.activity.MovieFoldersActivity;
@@ -57,6 +58,7 @@ public class TvMyFragment extends BaseLazyFragment {
         findViewById(R.id.tvSetting).setOnClickListener(v -> jumpActivity(SettingActivity.class));
         findViewById(R.id.tvHistory).setOnClickListener(v -> jumpActivity(HistoryActivity.class));
         findViewById(R.id.tvFavorite).setOnClickListener(v -> jumpActivity(CollectActivity.class));
+        findViewById(R.id.tvDownloads).setOnClickListener(v -> jumpActivity(DownloadsActivity.class));
         findViewById(R.id.tvLocal).setOnClickListener(v -> {
             if (!XXPermissions.isGranted(mContext, Permission.MANAGE_EXTERNAL_STORAGE)) {
                 XXPermissions.with(this)
