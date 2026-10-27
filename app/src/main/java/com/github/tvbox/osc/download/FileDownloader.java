@@ -8,7 +8,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Locale;
 
 import okhttp3.Call;
 import okhttp3.Response;
@@ -32,10 +31,13 @@ final class FileDownloader {
         }
         File dest = new File(task.filePath);
         if (dest.exists() && dest.length() > 0 && !(part.exists() && part.length() > 0)) {
-            task.downloadedBytes = dest.length();
-            task.totalBytes = dest.length();
-            task.progress = 100;
-            return;
+            if (DownloadMedia.isFinalFile(dest) && !DownloadMedia.isTinyJunk(dest)) {
+                task.downloadedBytes = dest.length();
+                task.totalBytes = dest.length();
+                task.progress = 100;
+                return;
+            }
+            dest.delete();
         }
         try {
             downloadOnce(task, dest, part, true);
@@ -70,18 +72,16 @@ final class FileDownloader {
 
             BufferedInputStream input = new BufferedInputStream(body.byteStream());
             if (!append) {
-                if (shouldSwitchToHls(input, response.header("Content-Type"))) {
+                byte[] peek = peek(input);
+                String type = response.header("Content-Type");
+                if (DownloadMedia.isPlaylist(peek, peek.length) || DownloadMedia.isMpegUrl(type)) {
                     input.close();
                     response.close();
                     switchToHls(task, dest, part);
                     return;
                 }
-                String type = response.header("Content-Type");
-                if (type != null) {
-                    String lower = type.toLowerCase(Locale.US);
-                    if (lower.contains("text/html") || lower.contains("xhtml")) {
-                        throw new IOException("该资源不支持下载");
-                    }
+                if (DownloadMedia.isRejectedType(type) || DownloadMedia.isText(peek, peek.length)) {
+                    throw new IOException(DownloadMedia.NOT_VIDEO);
                 }
                 retargetExtension(task, dest, type);
                 dest = new File(task.filePath);
@@ -112,6 +112,10 @@ final class FileDownloader {
             if (downloaded <= 0) {
                 if (part.exists()) part.delete();
                 throw new IOException("下载内容为空");
+            }
+            if (DownloadMedia.isTextFile(part) || DownloadMedia.isTinyJunk(part)) {
+                if (part.exists()) part.delete();
+                throw new IOException(DownloadMedia.NOT_VIDEO);
             }
             if (total > 0 && downloaded < total) {
                 manager.updateFileProgress(task, downloaded, total);
@@ -161,19 +165,16 @@ final class FileDownloader {
         return title == null ? "video" : title;
     }
 
-    private boolean shouldSwitchToHls(BufferedInputStream input, String contentType) throws IOException {
-        if (contentType != null && contentType.toLowerCase(Locale.US).contains("mpegurl")) return true;
-        input.mark(64);
-        byte[] peek = new byte[24];
-        int count = input.read(peek);
+    private static byte[] peek(BufferedInputStream input) throws IOException {
+        input.mark(1024);
+        byte[] buf = new byte[512];
+        int count = input.read(buf);
         input.reset();
-        if (count <= 0) return false;
-        int offset = 0;
-        if (count >= 3 && (peek[0] & 0xFF) == 0xEF && (peek[1] & 0xFF) == 0xBB && (peek[2] & 0xFF) == 0xBF) {
-            offset = 3;
-        }
-        String head = new String(peek, offset, count - offset, "UTF-8");
-        return head.startsWith("#EXTM3U");
+        if (count <= 0) return new byte[0];
+        if (count == buf.length) return buf;
+        byte[] exact = new byte[count];
+        System.arraycopy(buf, 0, exact, 0, count);
+        return exact;
     }
 
     private void switchToHls(DownloadTask task, File dest, File part) throws Exception {

@@ -232,7 +232,7 @@ public final class VideoDownloadManager {
                 saveLocked();
             }
         }
-        DownloadHttp.cancel(id);
+        cancelWork(id);
         notifyImmediate();
     }
 
@@ -266,7 +266,7 @@ public final class VideoDownloadManager {
             }
             saveLocked();
         }
-        DownloadHttp.cancel(id);
+        cancelWork(id);
         deleteFiles(removed);
         if (lastOfGroup) PosterStore.delete(removed.seriesKey);
         notifyImmediate();
@@ -284,7 +284,7 @@ public final class VideoDownloadManager {
             saveLocked();
         }
         for (DownloadTask task : removed) {
-            DownloadHttp.cancel(task.id);
+            cancelWork(task.id);
             deleteFiles(task);
         }
         PosterStore.delete(groupKey);
@@ -315,7 +315,7 @@ public final class VideoDownloadManager {
             saveLocked();
         }
         for (DownloadTask task : removed) {
-            DownloadHttp.cancel(task.id);
+            cancelWork(task.id);
             deleteFiles(task);
         }
         PosterStore.deleteAll();
@@ -442,6 +442,11 @@ public final class VideoDownloadManager {
                     if (file == null || !file.exists() || file.length() == 0) {
                         current.status = DownloadTask.FAILED;
                         current.error = "下载内容为空";
+                    } else if (DownloadMedia.isTextFile(file) || DownloadMedia.isTinyJunk(file)) {
+                        file.delete();
+                        current.status = DownloadTask.FAILED;
+                        current.error = DownloadMedia.NOT_VIDEO;
+                        current.downloadedBytes = 0;
                     } else {
                         current.status = DownloadTask.DONE;
                         current.progress = 100;
@@ -492,6 +497,11 @@ public final class VideoDownloadManager {
             notifyImmediate();
             pump();
         }
+    }
+
+    private static void cancelWork(String id) {
+        DownloadHttp.cancel(id);
+        DownloadSniffer.cancel(id);
     }
 
     private void startService() {

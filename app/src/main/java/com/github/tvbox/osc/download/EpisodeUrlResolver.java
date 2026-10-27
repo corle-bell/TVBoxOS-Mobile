@@ -12,9 +12,11 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 
 import okhttp3.Call;
 import okhttp3.HttpUrl;
@@ -23,7 +25,8 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 final class EpisodeUrlResolver {
-    private static final String NEED_SNIFF = "该集需嗅探，请播放该集后再下载";
+    static final String NEED_SNIFF = "该集需嗅探，请播放该集后再下载";
+    private static final int JSON_FALLBACK_LIMIT = 3;
 
     static final class Result {
         final String url;
@@ -67,7 +70,7 @@ final class EpisodeUrlResolver {
             return finish(playUrl + url, headers);
         }
         boolean useDefault = (playUrl.isEmpty() && ApiConfig.get().getVipParseFlags().contains(flag)) || jx;
-        return parse(parseBeanOf(useDefault, playUrl), flag, url);
+        return parse(parseBeanOf(useDefault, playUrl), flag, url, source);
     }
 
     private JSONObject playInfo(SourceBean source, String flag, String url) throws Exception {
@@ -127,54 +130,144 @@ final class EpisodeUrlResolver {
         return parseBean;
     }
 
-    private Result parse(ParseBean pb, String flag, String webUrl) throws Exception {
-        if (pb.getType() == 1) {
-            HashMap<String, String> reqHeaders = new HashMap<>();
-            try {
-                JSONObject ext = new JSONObject(pb.getExt());
-                reqHeaders.putAll(headersOf(ext.opt("header")));
-            } catch (Throwable ignored) {
-            }
-            String json = get(pb.getUrl() + URLEncoder.encode(webUrl, "UTF-8"), reqHeaders);
-            JSONObject data = new JSONObject(json);
-            String url = data.has("data") ? data.getJSONObject("data").getString("url") : data.getString("url");
-            if (url.startsWith("//")) url = "http:" + url;
-            HashMap<String, String> headers = new HashMap<>();
-            String ua = data.optString("user-agent", "").trim();
-            if (!ua.isEmpty()) headers.put("User-Agent", ua);
-            String referer = data.optString("referer", "").trim();
-            if (!referer.isEmpty()) headers.put("Referer", referer);
-            return finish(url, headers);
-        }
-        if (pb.getType() == 2) {
-            LinkedHashMap<String, String> jxs = new LinkedHashMap<>();
-            for (ParseBean p : ApiConfig.get().getParseBeanList()) {
-                if (p.getType() == 1) jxs.put(p.getName(), p.mixUrl());
-            }
-            JSONObject rs = ApiConfig.get().jsonExt(pb.getUrl(), jxs, webUrl);
-            return fromExtResult(rs);
-        }
-        if (pb.getType() == 3) {
-            LinkedHashMap<String, HashMap<String, String>> jxs = new LinkedHashMap<>();
-            String extendName = "";
-            for (ParseBean p : ApiConfig.get().getParseBeanList()) {
-                HashMap<String, String> data = new HashMap<>();
-                data.put("url", p.getUrl());
-                if (p.getUrl().equals(pb.getUrl())) extendName = p.getName();
-                data.put("type", p.getType() + "");
-                data.put("ext", p.getExt());
-                jxs.put(p.getName(), data);
-            }
-            JSONObject rs = ApiConfig.get().jsonExtMix(flag + "111", pb.getUrl(), extendName, jxs, webUrl);
-            return fromExtResult(rs);
-        }
-        throw new IOException(NEED_SNIFF);
+    private static final class Outcome {
+        Result result;
+        boolean needsSniff;
+        String pageUrl;
+        String userAgent;
+        HashMap<String, String> pageHeaders = new HashMap<>();
     }
 
-    private Result fromExtResult(JSONObject rs) throws Exception {
-        if (rs == null || rs.optString("url", "").isEmpty()) throw new IOException("解析错误");
-        if (rs.optInt("parse", 0) == 1) throw new IOException(NEED_SNIFF);
-        return finish(rs.optString("url", ""), headersOf(rs.opt("header")));
+    /**
+     * 指定解析器仍要嗅探时，再按订阅顺序最多试 3 个 JSON 解析器，然后抓页面、最后才嗅探
+     */
+    private Result parse(ParseBean primary, String flag, String webUrl, SourceBean source) throws Exception {
+        checkStop();
+        Outcome first = runParser(primary, flag, webUrl);
+        if (first.result != null) return first.result;
+        if (!first.needsSniff) throw new IOException(NEED_SNIFF);
+
+        int extra = 0;
+        List<ParseBean> parsers = new ArrayList<>(ApiConfig.get().getParseBeanList());
+        for (ParseBean candidate : parsers) {
+            if (extra >= JSON_FALLBACK_LIMIT) break;
+            int type = candidate.getType();
+            if (type < 1 || type > 3 || sameParser(candidate, primary)) continue;
+            extra++;
+            checkStop();
+            try {
+                Outcome outcome = runParser(candidate, flag, webUrl);
+                if (outcome.result != null) return outcome.result;
+            } catch (DownloadStoppedException stopped) {
+                throw stopped;
+            } catch (Exception ignored) {
+            }
+        }
+        return resolveSniffPage(first, webUrl, source);
+    }
+
+    private Result resolveSniffPage(Outcome target, String webUrl, SourceBean source) throws Exception {
+        String page = target.pageUrl == null ? "" : target.pageUrl.trim();
+        String lower = page.toLowerCase();
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            throw new IOException(NEED_SNIFF);
+        }
+        checkStop();
+        Result extracted = ParsePageExtractor.tryExtract(manager, taskId, page, webUrl, target.pageHeaders, target.userAgent, source);
+        if (extracted != null) return extracted;
+        checkStop();
+        String click = source == null || source.getClickSelector() == null ? "" : source.getClickSelector();
+        return DownloadSniffer.sniff(manager, taskId, page, webUrl, target.pageHeaders, target.userAgent, click, source);
+    }
+
+    private Outcome runParser(ParseBean pb, String flag, String webUrl) throws Exception {
+        Outcome outcome = new Outcome();
+        if (pb.getType() == 1) {
+            outcome.result = parseJson(pb, webUrl);
+            return outcome;
+        }
+        if (pb.getType() == 2 || pb.getType() == 3) {
+            JSONObject rs = pb.getType() == 2 ? jsonExt(pb, webUrl) : jsonExtMix(pb, flag, webUrl);
+            if (rs == null || rs.optString("url", "").isEmpty()) throw new IOException("解析错误");
+            if (rs.optInt("parse", 0) == 1) {
+                outcome.needsSniff = true;
+                outcome.pageUrl = DefaultConfig.checkReplaceProxy(rs.optString("url", ""));
+                outcome.userAgent = rs.optString("ua", "").trim();
+                outcome.pageHeaders = headersOf(rs.opt("header"));
+                return outcome;
+            }
+            outcome.result = finish(rs.optString("url", ""), headersOf(rs.opt("header")));
+            return outcome;
+        }
+        outcome.needsSniff = true;
+        outcome.pageUrl = (pb.getUrl() == null ? "" : pb.getUrl()) + (webUrl == null ? "" : webUrl);
+        fillExtRequest(pb, outcome);
+        return outcome;
+    }
+
+    private Result parseJson(ParseBean pb, String webUrl) throws Exception {
+        HashMap<String, String> reqHeaders = new HashMap<>();
+        try {
+            JSONObject ext = new JSONObject(pb.getExt());
+            reqHeaders.putAll(headersOf(ext.opt("header")));
+        } catch (Throwable ignored) {
+        }
+        String json = get(pb.getUrl() + URLEncoder.encode(webUrl, "UTF-8"), reqHeaders);
+        JSONObject data = new JSONObject(json);
+        String url = data.has("data") ? data.getJSONObject("data").getString("url") : data.getString("url");
+        if (url.startsWith("//")) url = "http:" + url;
+        HashMap<String, String> headers = new HashMap<>();
+        String ua = data.optString("user-agent", "").trim();
+        if (!ua.isEmpty()) headers.put("User-Agent", ua);
+        String referer = data.optString("referer", "").trim();
+        if (!referer.isEmpty()) headers.put("Referer", referer);
+        return finish(url, headers);
+    }
+
+    private JSONObject jsonExt(ParseBean pb, String webUrl) {
+        LinkedHashMap<String, String> jxs = new LinkedHashMap<>();
+        for (ParseBean p : ApiConfig.get().getParseBeanList()) {
+            if (p.getType() == 1) jxs.put(p.getName(), p.mixUrl());
+        }
+        return ApiConfig.get().jsonExt(pb.getUrl(), jxs, webUrl);
+    }
+
+    private JSONObject jsonExtMix(ParseBean pb, String flag, String webUrl) {
+        LinkedHashMap<String, HashMap<String, String>> jxs = new LinkedHashMap<>();
+        String extendName = "";
+        for (ParseBean p : ApiConfig.get().getParseBeanList()) {
+            HashMap<String, String> data = new HashMap<>();
+            data.put("url", p.getUrl());
+            if (p.getUrl().equals(pb.getUrl())) extendName = p.getName();
+            data.put("type", p.getType() + "");
+            data.put("ext", p.getExt());
+            jxs.put(p.getName(), data);
+        }
+        return ApiConfig.get().jsonExtMix(flag + "111", pb.getUrl(), extendName, jxs, webUrl);
+    }
+
+    private static void fillExtRequest(ParseBean pb, Outcome outcome) {
+        if (pb.getExt() == null || pb.getExt().isEmpty()) return;
+        try {
+            JSONObject header = new JSONObject(pb.getExt()).optJSONObject("header");
+            if (header == null) return;
+            Iterator<String> keys = header.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                String value = header.optString(key, "").trim();
+                if (value.isEmpty()) continue;
+                if (key.equalsIgnoreCase("user-agent")) outcome.userAgent = value;
+                else outcome.pageHeaders.put(key, value);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean sameParser(ParseBean a, ParseBean b) {
+        if (a == b) return true;
+        String left = a.getUrl() == null ? "" : a.getUrl();
+        String right = b.getUrl() == null ? "" : b.getUrl();
+        return a.getType() == b.getType() && left.equals(right);
     }
 
     private Result finish(String url, HashMap<String, String> headers) throws IOException {

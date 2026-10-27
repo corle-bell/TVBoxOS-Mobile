@@ -148,6 +148,10 @@ final class HlsDownloader {
         }
         merged.delete();
         DownloadPaths.deleteRecursive(dir);
+        if (DownloadMedia.isTextFile(out) || DownloadMedia.isTinyJunk(out)) {
+            out.delete();
+            throw new IOException(DownloadMedia.NOT_VIDEO);
+        }
         task.workDir = null;
         task.filePath = out.getAbsolutePath();
         task.downloadedBytes = out.length();
@@ -263,6 +267,10 @@ final class HlsDownloader {
                 }
             }
             if (dest.length() <= 0) throw new IOException("分片内容为空");
+            if (DownloadMedia.isTextFile(dest)) {
+                dest.delete();
+                throw new IOException(DownloadMedia.NOT_VIDEO);
+            }
         } catch (DownloadStoppedException e) {
             if (dest.exists()) dest.delete();
             throw e;

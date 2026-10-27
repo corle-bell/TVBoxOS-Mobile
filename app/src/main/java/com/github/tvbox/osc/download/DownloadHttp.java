@@ -58,14 +58,20 @@ final class DownloadHttp {
                 continue;
             }
             try {
-                builder.header(name, entry.getValue().replace("\n", "").replace("\r", ""));
+                String value = entry.getValue().replace("\n", "").replace("\r", "").trim();
+                if (value.isEmpty()) continue;
+                builder.header(name, value);
             } catch (Exception ignored) {
             }
         }
     }
 
     static Call enqueueCall(String taskId, Request request) {
-        Call call = client().newCall(request);
+        return enqueueCall(taskId, client(), request);
+    }
+
+    static Call enqueueCall(String taskId, OkHttpClient http, Request request) {
+        Call call = http.newCall(request);
         Set<Call> set = CALLS.get(taskId);
         if (set == null) {
             set = ConcurrentHashMap.newKeySet();
