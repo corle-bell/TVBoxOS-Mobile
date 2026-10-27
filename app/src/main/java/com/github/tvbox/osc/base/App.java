@@ -15,12 +15,12 @@ import com.github.tvbox.osc.download.VideoDownloadManager;
 import com.github.tvbox.osc.server.ControlManager;
 import com.github.tvbox.osc.sync.webdav.WebDavSyncScheduler;
 import com.github.tvbox.osc.ui.activity.MainActivity;
-import com.github.tvbox.osc.util.EpgUtil;
 import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.OkGoHelper;
 import com.github.tvbox.osc.util.PlayerHelper;
+import com.github.tvbox.osc.util.StartupTrace;
 import com.github.tvbox.osc.util.UiModeHelper;
 import com.github.tvbox.osc.util.Utils;
 import com.kingja.loadsir.core.LoadSir;
@@ -51,12 +51,12 @@ public class App extends MultiDexApplication {
     @Override
     public void onCreate() {
         super.onCreate();
+        StartupTrace.begin("app");
         instance = this;
         initParams();
         VideoDownloadManager.get().resetInterrupted();
         // OKGo
-        OkGoHelper.init(); //台标获取
-        EpgUtil.init();
+        OkGoHelper.init();
         // 初始化Web服务器
         ControlManager.init(this);
         //初始化数据库
@@ -78,11 +78,14 @@ public class App extends MultiDexApplication {
                     .setDesignWidthInDp(960)
                     .setDesignHeightInDp(540);
         }
-        PlayerHelper.init();
-        QuickJSLoader.init();
-        FileUtils.cleanPlayerCache();
+        new Thread(() -> {
+            PlayerHelper.init();
+            QuickJSLoader.init();
+            FileUtils.cleanPlayerCache();
+        }, "app-init").start();
         initCrashConfig();
         Utils.initTheme();
+        StartupTrace.end("app");
     }
 
     private void initParams() {

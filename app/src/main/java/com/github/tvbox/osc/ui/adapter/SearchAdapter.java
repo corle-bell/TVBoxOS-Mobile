@@ -43,6 +43,7 @@ public class SearchAdapter extends BaseQuickAdapter<Movie.Video, BaseViewHolder>
                         .error(R.drawable.img_loading_placeholder)
                         .into(ivThumb);
             } else {
+                Picasso.get().cancelRequest(ivThumb);
                 ivThumb.setImageResource(R.drawable.img_loading_placeholder);
             }
     }

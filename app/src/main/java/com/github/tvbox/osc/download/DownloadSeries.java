@@ -13,6 +13,7 @@ public class DownloadSeries {
     public int active;
     public int failed;
     public int progress;
+    public String pic;
 
     public static List<DownloadSeries> group(List<DownloadTask> tasks) {
         Map<String, DownloadSeries> map = new LinkedHashMap<>();
@@ -28,6 +29,9 @@ public class DownloadSeries {
                 progressSum.put(key, 0);
             }
             series.total++;
+            if (series.pic == null && task.seriesPic != null && !task.seriesPic.isEmpty()) {
+                series.pic = task.seriesPic;
+            }
             if (task.status == DownloadTask.DONE) {
                 series.done++;
             } else if (task.status == DownloadTask.RUNNING || task.status == DownloadTask.WAITING) {

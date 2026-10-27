@@ -34,6 +34,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.lzy.okgo.OkGo;
 import com.lzy.okgo.callback.AbsCallback;
 import com.lzy.okgo.model.Response;
@@ -135,72 +136,79 @@ public class UserFragment extends BaseLazyFragment {
             }
             return;
         }
-        try {
-            Calendar cal = Calendar.getInstance();
-            int year = cal.get(Calendar.YEAR);
-            int month = cal.get(Calendar.MONTH) + 1;
-            int day = cal.get(Calendar.DATE);
-            String today = String.format("%d%d%d", year, month, day);
+        Calendar cal = Calendar.getInstance();
+        int year = cal.get(Calendar.YEAR);
+        int month = cal.get(Calendar.MONTH) + 1;
+        int day = cal.get(Calendar.DATE);
+        String today = String.format("%d%d%d", year, month, day);
+        new Thread(() -> {
             String requestDay = Hawk.get("home_hot_day", "");
-            if (requestDay.equals(today)) {
-                String json = Hawk.get("home_hot", "");
-                if (!json.isEmpty()) {
-                    ArrayList<Movie.Video> hotMovies = loadHots(json);
-                    if (hotMovies != null && hotMovies.size() > 0) {
-                        showSuccess();
-                        adapter.setNewData(hotMovies);
-                        return;
-                    }
-                }
+            String cachedJson = Hawk.get("home_hot", "");
+            ArrayList<Movie.Video> cached = cachedJson.isEmpty() ? new ArrayList<>() : loadHots(cachedJson);
+            if (requestDay.equals(today) && !cached.isEmpty()) {
+                showHots(adapter, cached);
+                return;
             }
-            String doubanUrl = "https://movie.douban.com/j/new_search_subjects?sort=U&range=0,10&tags=&playable=1&start=0&year_range=" + year + "," + year;
-            OkGo.<String>get(doubanUrl)
-                    .headers("User-Agent", UA.randomOne())
-                    .execute(new AbsCallback<String>() {
-                        @Override
-                        public void onSuccess(Response<String> response) {
-                            String netJson = response.body();
+            fetchHots(adapter, today, year, cached);
+        }, "douban-hot").start();
+    }
+
+    private void fetchHots(GridAdapter adapter, String today, int year, ArrayList<Movie.Video> fallback) {
+        String doubanUrl = "https://movie.douban.com/j/new_search_subjects?sort=U&range=0,10&tags=&playable=1&start=0&year_range=" + year + "," + year;
+        OkGo.<ArrayList<Movie.Video>>get(doubanUrl)
+                .headers("User-Agent", UA.randomOne())
+                .execute(new AbsCallback<ArrayList<Movie.Video>>() {
+                    @Override
+                    public ArrayList<Movie.Video> convertResponse(okhttp3.Response response) throws Throwable {
+                        String netJson = response.body() == null ? "" : response.body().string();
+                        ArrayList<Movie.Video> videos = loadHots(netJson);
+                        if (!videos.isEmpty()) {
                             Hawk.put("home_hot_day", today);
                             Hawk.put("home_hot", netJson);
-                            mActivity.runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    ArrayList<Movie.Video> videos = loadHots(netJson);
-                                    if (videos.size()>0){
-                                        showSuccess();
-                                        adapter.setNewData(videos);
-                                    }else {
-                                        showEmpty();
-                                    }
-                                }
-                            });
                         }
+                        return videos;
+                    }
 
-                        @Override
-                        public String convertResponse(okhttp3.Response response) throws Throwable {
-                            return response.body().string();
-                        }
-                    });
-        } catch (Throwable th) {
-            th.printStackTrace();
-            if (adapter.getData().isEmpty()){
+                    @Override
+                    public void onSuccess(Response<ArrayList<Movie.Video>> response) {
+                        ArrayList<Movie.Video> videos = response.body();
+                        showHots(adapter, videos != null && !videos.isEmpty() ? videos : fallback);
+                    }
+
+                    @Override
+                    public void onError(Response<ArrayList<Movie.Video>> response) {
+                        super.onError(response);
+                        showHots(adapter, fallback);
+                    }
+                });
+    }
+
+    private void showHots(GridAdapter adapter, List<Movie.Video> videos) {
+        if (mActivity == null) return;
+        mActivity.runOnUiThread(() -> {
+            if (!isAdded()) return;
+            if (videos != null && !videos.isEmpty()) {
+                showSuccess();
+                adapter.setNewData(videos);
+            } else if (adapter.getData().isEmpty()) {
                 showEmpty();
             }
-        }
+        });
     }
 
     private ArrayList<Movie.Video> loadHots(String json) {
         ArrayList<Movie.Video> result = new ArrayList<>();
         try {
-            JsonObject infoJson = new Gson().fromJson(json, JsonObject.class);
+            JsonObject infoJson = JsonParser.parseString(json).getAsJsonObject();
             JsonArray array = infoJson.getAsJsonArray("data");
+            String picSuffix = "@Referer=https://movie.douban.com/@User-Agent=" + UA.random();
             for (JsonElement ele : array) {
                 JsonObject obj = (JsonObject) ele;
                 Movie.Video vod = new Movie.Video();
                 vod.name = obj.get("title").getAsString();
                 vod.note = obj.get("rate").getAsString();
                 if (!vod.note.isEmpty()) vod.note += " 分";
-                vod.pic = obj.get("cover").getAsString() + "@Referer=https://movie.douban.com/@User-Agent=" + UA.random();
+                vod.pic = obj.get("cover").getAsString() + picSuffix;
                 result.add(vod);
             }
         } catch (Throwable th) {

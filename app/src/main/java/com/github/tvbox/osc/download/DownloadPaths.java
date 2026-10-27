@@ -4,6 +4,7 @@ import android.net.Uri;
 import android.os.Environment;
 
 import com.github.tvbox.osc.base.App;
+import com.github.tvbox.osc.util.MD5;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,6 +32,14 @@ final class DownloadPaths {
 
     static File workDir(DownloadTask task) {
         return new File(movieDir(), "hls_" + task.id);
+    }
+
+    static File posterDir() {
+        return new File(movieDir(), "posters");
+    }
+
+    static File posterFile(String seriesKey) {
+        return new File(posterDir(), MD5.string2MD5(seriesKey) + ".jpg");
     }
 
     static boolean looksLikeM3u8(String url) {

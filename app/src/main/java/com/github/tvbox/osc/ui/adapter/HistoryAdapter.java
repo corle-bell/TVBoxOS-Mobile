@@ -61,8 +61,11 @@ public class HistoryAdapter extends BaseQuickAdapter<VodInfo, BaseViewHolder> {
                     .load(DefaultConfig.checkReplaceProxy(item.pic))
                     .placeholder(R.drawable.img_loading_placeholder)
                     .error(R.drawable.img_loading_placeholder)
+                    .fit()
+                    .centerCrop()
                     .into(ivThumb);
         } else {
+            Picasso.get().cancelRequest(ivThumb);
             ivThumb.setImageResource(R.drawable.img_loading_placeholder);
         }
     }

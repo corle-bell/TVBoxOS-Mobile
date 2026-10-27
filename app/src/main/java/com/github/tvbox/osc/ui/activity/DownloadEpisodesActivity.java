@@ -155,7 +155,7 @@ public class DownloadEpisodesActivity extends BaseVbActivity<ActivityDownloadsBi
     private void reload() {
         if (adapter == null) return;
         List<DownloadTask> tasks = VideoDownloadManager.get().groupSnapshot(seriesKey);
-        adapter.setNewData(tasks);
+        adapter.update(tasks);
         boolean empty = tasks.isEmpty();
         mBinding.tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
         mBinding.topTip.setVisibility(empty ? View.GONE : View.VISIBLE);

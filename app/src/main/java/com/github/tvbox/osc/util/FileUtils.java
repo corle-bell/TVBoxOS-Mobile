@@ -234,6 +234,56 @@ public class FileUtils {
         return false;
     }
 
+    public static boolean writeAtomic(File dst, byte[] data) {
+        try {
+            return writeAtomic(dst, new java.io.ByteArrayInputStream(data));
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public static boolean writeAtomic(File dst, InputStream in) throws IOException {
+        File dir = dst.getParentFile();
+        if (dir != null && !dir.exists()) dir.mkdirs();
+        File tmp = File.createTempFile(dst.getName(), ".tmp", dir);
+        try {
+            try (OutputStream out = new BufferedOutputStream(new FileOutputStream(tmp))) {
+                byte[] buffer = new byte[8192];
+                int len;
+                while ((len = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, len);
+                }
+            }
+            if (tmp.length() == 0 || !tmp.renameTo(dst)) {
+                tmp.delete();
+                return false;
+            }
+            return true;
+        } catch (IOException e) {
+            tmp.delete();
+            throw e;
+        } finally {
+            in.close();
+        }
+    }
+
+    public static String readText(File src) {
+        if (src == null || !src.isFile()) return null;
+        try (InputStream in = new FileInputStream(src)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream((int) Math.max(src.length(), 32));
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = in.read(buffer)) != -1) {
+                out.write(buffer, 0, len);
+            }
+            return out.toString("UTF-8");
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     public static byte[] readSimple(File src) {
         try {
             BufferedInputStream bis = new BufferedInputStream(new FileInputStream(src));

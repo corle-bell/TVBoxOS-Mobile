@@ -31,6 +31,10 @@ public class DownloadTask {
     public String seriesName;
     public String episodeName;
     public int episodeIndex = -1;
+    public String sourceKey;
+    public String playFlag;
+    public String episodeUrl;
+    public String seriesPic;
 
     public DownloadTask() {
     }
@@ -68,6 +72,10 @@ public class DownloadTask {
         copy.seriesName = seriesName;
         copy.episodeName = episodeName;
         copy.episodeIndex = episodeIndex;
+        copy.sourceKey = sourceKey;
+        copy.playFlag = playFlag;
+        copy.episodeUrl = episodeUrl;
+        copy.seriesPic = seriesPic;
         return copy;
     }
 }

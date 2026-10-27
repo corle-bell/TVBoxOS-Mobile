@@ -56,7 +56,7 @@ public class MD5 {
         return encode(strTemp);
     }
 
-    private static String encode(byte[] bytes) {
+    private static synchronized String encode(byte[] bytes) {
         try {
             sDigest.update(bytes);
             byte[] md = sDigest.digest();
@@ -107,7 +107,7 @@ public class MD5 {
     /**
      * MD5加码 生成32位md5码
      */
-    public static String string2MD5(String inStr) {
+    public static synchronized String string2MD5(String inStr) {
         if (sDigest == null) {
             Log.e("MD5", "MD5信息摘要初始化失败");
             return null;
@@ -138,7 +138,7 @@ public class MD5 {
      * @param strSource 待加密的源字符串
      * @return 加密后的字符串，不支持此类字符集合返回null
      */
-    public static String encrypt(final String strSource) {
+    public static synchronized String encrypt(final String strSource) {
         if (sDigest == null) {
             Log.e("MD5", "MD5信息摘要初始化失败");
             return null;

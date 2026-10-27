@@ -32,6 +32,8 @@ import com.github.tvbox.osc.ui.dialog.SelectDialog
 import com.github.tvbox.osc.ui.dialog.TipDialog
 import com.github.tvbox.osc.util.DefaultConfig
 import com.github.tvbox.osc.util.HawkConfig
+import com.github.tvbox.osc.util.HomeLauncher
+import com.github.tvbox.osc.util.StartupTrace
 import com.github.tvbox.osc.viewmodel.SourceViewModel
 import com.orhanobut.hawk.Hawk
 import com.owen.tvrecyclerview.widget.TvRecyclerView
@@ -53,7 +55,7 @@ class TvHomeFragment : BaseLazyFragment() {
     private var dataInitOk = false
     private var jarInitOk = false
     private var errorTipDialog: TipDialog? = null
-    private var onlyConfigChanged = false
+    private var loadMode = ApiConfig.LoadMode.CACHE_THEN_REFRESH
     private var currentTabIndex = 0
 
     private var tvName: TextView? = null
@@ -73,7 +75,8 @@ class TvHomeFragment : BaseLazyFragment() {
             else ToastUtils.showShort("数据源未加载，长按刷新或切换订阅")
         }
         findViewById<View>(R.id.tvName)?.setOnLongClickListener {
-            refreshHomeSources()
+            ToastUtils.showShort("正在刷新订阅")
+            HomeLauncher.restart(requireActivity(), ApiConfig.LoadMode.NETWORK)
             true
         }
         findViewById<View>(R.id.search)?.setOnClickListener {
@@ -93,6 +96,7 @@ class TvHomeFragment : BaseLazyFragment() {
     private fun initViewModel() {
         sourceViewModel = ViewModelProvider(this)[SourceViewModel::class.java]
         sourceViewModel?.sortResult?.observe(this) { absXml: AbsSortXml? ->
+            StartupTrace.end("sort")
             showSuccess()
             mSortDataList = if (absXml?.classes?.sortList != null) {
                 DefaultConfig.adjustSort(
@@ -109,7 +113,7 @@ class TvHomeFragment : BaseLazyFragment() {
 
     private fun initData() {
         val tvMain = mActivity as? TvMainActivity
-        onlyConfigChanged = tvMain?.useCacheConfig ?: false
+        loadMode = tvMain?.loadMode ?: ApiConfig.LoadMode.CACHE_THEN_REFRESH
         val home = ApiConfig.get().homeSourceBean
         if (home != null && !home.name.isNullOrEmpty()) {
             tvName?.text = home.name
@@ -117,14 +121,17 @@ class TvHomeFragment : BaseLazyFragment() {
         }
         showLoading()
         when {
-            dataInitOk && jarInitOk -> sourceViewModel?.getSort(ApiConfig.get().homeSourceBean.key)
+            dataInitOk && jarInitOk -> {
+                StartupTrace.begin("sort")
+                sourceViewModel?.getSort(ApiConfig.get().homeSourceBean.key)
+            }
             dataInitOk && !jarInitOk -> loadJar()
             else -> loadConfig()
         }
     }
 
     private fun loadConfig() {
-        ApiConfig.get().loadConfig(onlyConfigChanged, object : LoadConfigCallback {
+        ApiConfig.get().loadConfig(loadMode, object : LoadConfigCallback {
             override fun retry() {
                 mHandler.post { initData() }
             }
@@ -147,7 +154,7 @@ class TvHomeFragment : BaseLazyFragment() {
 
     private fun loadJar() {
         if (!ApiConfig.get().spider.isNullOrEmpty()) {
-            ApiConfig.get().loadJar(onlyConfigChanged, ApiConfig.get().spider, object : LoadConfigCallback {
+            ApiConfig.get().loadJar(loadMode, ApiConfig.get().spider, object : LoadConfigCallback {
                 override fun success() {
                     jarInitOk = true
                     mHandler.postDelayed({ initData() }, 50)
@@ -278,14 +285,11 @@ class TvHomeFragment : BaseLazyFragment() {
     }
 
     private fun refreshHomeSources() {
-        val intent = Intent(App.getInstance(), TvMainActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TASK
-        intent.putExtra(IntentKey.CACHE_CONFIG_CHANGED, true)
-        startActivity(intent)
+        HomeLauncher.restart(requireActivity(), ApiConfig.LoadMode.CACHE)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        ControlManager.get().stopServer()
+        mHandler.removeCallbacksAndMessages(null)
     }
 }

@@ -26,6 +26,8 @@ public class RefreshEvent {
 
     public int type;
     public Object obj;
+    /** 搜索批次，用于丢弃旧搜索的结果 */
+    public int token;
 
     public RefreshEvent(int type) {
         this.type = type;

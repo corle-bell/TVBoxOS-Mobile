@@ -7,7 +7,9 @@ import androidx.fragment.app.Fragment
 import com.blankj.utilcode.util.ActivityUtils
 import com.blankj.utilcode.util.ToastUtils
 import com.github.tvbox.osc.R
+import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.base.BaseVbActivity
+import com.github.tvbox.osc.util.HomeLauncher
 import com.github.tvbox.osc.databinding.ActivityTvMainBinding
 import com.github.tvbox.osc.ui.fragment.TvGridFragment
 import com.github.tvbox.osc.ui.fragment.TvHomeFragment
@@ -16,14 +18,14 @@ import kotlin.system.exitProcess
 
 class TvMainActivity : BaseVbActivity<ActivityTvMainBinding>() {
 
-    var useCacheConfig = false
+    var loadMode = ApiConfig.LoadMode.CACHE_THEN_REFRESH
     private val navViews = mutableListOf<View>()
     private var exitTime = 0L
     private var currentNavIndex = 0
     private var homeFragment: TvHomeFragment? = null
 
     override fun init() {
-        useCacheConfig = intent.extras?.getBoolean(com.github.tvbox.osc.constant.IntentKey.CACHE_CONFIG_CHANGED, false) ?: false
+        loadMode = HomeLauncher.loadMode(intent)
 
         navViews.addAll(
             listOf(

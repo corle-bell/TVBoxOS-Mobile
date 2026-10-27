@@ -6,6 +6,7 @@ import android.util.Log;
 
 import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.event.RefreshEvent;
+import com.github.tvbox.osc.util.FileUtils;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.orhanobut.hawk.Hawk;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class VideoDownloadManager {
     public static final int ADDED = 1;
@@ -29,6 +31,8 @@ public final class VideoDownloadManager {
 
     private static final String TAG = "VideoDownload";
     private static final String HAWK_KEY = "download_tasks";
+    private static final String STORE_FILE = "downloads.json";
+    private static final long PROGRESS_SAVE_INTERVAL_MS = 3000;
     private static final int MAX_CONCURRENT = 2;
 
     private static volatile VideoDownloadManager instance;
@@ -37,8 +41,11 @@ public final class VideoDownloadManager {
     private final java.util.Set<String> runningIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final ExecutorService executor = Executors.newFixedThreadPool(MAX_CONCURRENT);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService saver = Executors.newSingleThreadExecutor(r -> new Thread(r, "download-store"));
+    private final AtomicReference<String> pendingJson = new AtomicReference<>();
     private final Gson gson = new Gson();
     private long lastNotifyAt;
+    private long lastSavedAt;
 
     private VideoDownloadManager() {
         load();
@@ -68,51 +75,152 @@ public final class VideoDownloadManager {
         }
     }
 
-    public int enqueue(String title, String url, Map<String, String> headers) {
-        return enqueue(title, url, headers, null, null, null, -1);
+    public static final class EpisodeRequest {
+        public String title;
+        public String url;
+        public Map<String, String> headers;
+        public String seriesKey;
+        public String seriesName;
+        public String seriesPic;
+        public String episodeName;
+        public String episodeUrl;
+        public int episodeIndex = -1;
+        public String sourceKey;
+        public String playFlag;
     }
 
-    public int enqueue(String title, String url, Map<String, String> headers,
-                       String seriesKey, String seriesName, String episodeName, int episodeIndex) {
-        if (url != null) url = url.trim();
+    public static final class EnqueueResult {
+        public int added;
+        public int resumed;
+        public int skipped;
+    }
+
+    public int enqueue(String title, String url, Map<String, String> headers) {
+        EpisodeRequest request = new EpisodeRequest();
+        request.title = title;
+        request.url = url;
+        request.headers = headers;
+        EnqueueResult result = enqueueEpisodes(java.util.Collections.singletonList(request));
+        if (result.added > 0) return ADDED;
+        return result.resumed > 0 ? RESUMED : DUPLICATE;
+    }
+
+    public EnqueueResult enqueueEpisodes(List<EpisodeRequest> requests) {
+        EnqueueResult result = new EnqueueResult();
+        if (requests == null || requests.isEmpty()) return result;
         synchronized (tasks) {
-            for (DownloadTask task : tasks) {
-                if (task.url != null && task.url.equals(url)) {
-                    if ((task.seriesKey == null || task.seriesKey.isEmpty()) && seriesKey != null) {
-                        task.seriesKey = seriesKey;
-                        task.seriesName = seriesName;
-                        task.episodeName = episodeName;
-                        task.episodeIndex = episodeIndex;
-                        saveLocked();
-                    }
-                    if (task.status == DownloadTask.FAILED || task.status == DownloadTask.PAUSED) {
-                        task.status = DownloadTask.WAITING;
-                        task.error = null;
-                        saveLocked();
-                        startService();
-                        return RESUMED;
-                    }
-                    return DUPLICATE;
+            for (EpisodeRequest request : requests) {
+                int r = enqueueLocked(request);
+                if (r == ADDED) {
+                    result.added++;
+                } else if (r == RESUMED) {
+                    result.resumed++;
+                } else {
+                    result.skipped++;
                 }
             }
-            DownloadTask task = new DownloadTask();
-            task.id = UUID.randomUUID().toString().replace("-", "");
-            task.title = title == null || title.trim().isEmpty() ? "video" : title.trim();
-            task.url = url;
-            task.headers = headers == null ? new HashMap<String, String>() : new HashMap<>(headers);
-            task.type = DownloadPaths.looksLikeM3u8(url) ? DownloadTask.TYPE_HLS : DownloadTask.TYPE_FILE;
-            task.status = DownloadTask.WAITING;
-            task.createdAt = System.currentTimeMillis();
-            task.seriesKey = seriesKey;
-            task.seriesName = seriesName;
-            task.episodeName = episodeName;
-            task.episodeIndex = episodeIndex;
-            tasks.add(0, task);
             saveLocked();
         }
+        for (EpisodeRequest request : requests) {
+            PosterStore.ensure(request.seriesKey, request.seriesPic);
+        }
         notifyImmediate();
-        startService();
+        if (result.added > 0 || result.resumed > 0) startService();
+        return result;
+    }
+
+    public File posterFile(String seriesKey) {
+        return PosterStore.existing(seriesKey);
+    }
+
+    public void ensurePoster(String seriesKey, String pic) {
+        PosterStore.ensure(seriesKey, pic);
+    }
+
+    private int enqueueLocked(EpisodeRequest request) {
+        String url = request.url == null ? "" : request.url.trim();
+        String episodeUrl = request.episodeUrl == null ? null : request.episodeUrl.trim();
+        DownloadTask existing = null;
+        for (DownloadTask task : tasks) {
+            if (episodeUrl != null && !episodeUrl.isEmpty() && request.seriesKey != null
+                    && request.seriesKey.equals(task.seriesKey) && episodeUrl.equals(task.episodeUrl)) {
+                existing = task;
+                break;
+            }
+            if (!url.isEmpty() && url.equals(task.url)) {
+                existing = task;
+                break;
+            }
+        }
+        if (existing != null) {
+            fillMissing(existing, request, episodeUrl);
+            if ((existing.url == null || existing.url.isEmpty()) && !url.isEmpty()) {
+                existing.url = url;
+                existing.headers = request.headers == null ? new HashMap<String, String>() : new HashMap<>(request.headers);
+                existing.type = DownloadPaths.looksLikeM3u8(url) ? DownloadTask.TYPE_HLS : DownloadTask.TYPE_FILE;
+            }
+            if (existing.status == DownloadTask.FAILED || existing.status == DownloadTask.PAUSED) {
+                existing.status = DownloadTask.WAITING;
+                existing.error = null;
+                return RESUMED;
+            }
+            return DUPLICATE;
+        }
+        DownloadTask task = new DownloadTask();
+        task.id = UUID.randomUUID().toString().replace("-", "");
+        String title = request.title;
+        task.title = title == null || title.trim().isEmpty() ? "video" : title.trim();
+        task.url = url;
+        task.headers = request.headers == null ? new HashMap<String, String>() : new HashMap<>(request.headers);
+        task.type = DownloadPaths.looksLikeM3u8(url) ? DownloadTask.TYPE_HLS : DownloadTask.TYPE_FILE;
+        task.status = DownloadTask.WAITING;
+        task.createdAt = System.currentTimeMillis();
+        task.seriesKey = request.seriesKey;
+        task.seriesName = request.seriesName;
+        task.seriesPic = request.seriesPic;
+        task.episodeName = request.episodeName;
+        task.episodeIndex = request.episodeIndex;
+        task.episodeUrl = episodeUrl;
+        task.sourceKey = request.sourceKey;
+        task.playFlag = request.playFlag;
+        tasks.add(0, task);
         return ADDED;
+    }
+
+    private static void fillMissing(DownloadTask task, EpisodeRequest request, String episodeUrl) {
+        if ((task.seriesKey == null || task.seriesKey.isEmpty()) && request.seriesKey != null) {
+            task.seriesKey = request.seriesKey;
+            task.seriesName = request.seriesName;
+            task.episodeName = request.episodeName;
+            task.episodeIndex = request.episodeIndex;
+        }
+        if (task.episodeUrl == null && episodeUrl != null) task.episodeUrl = episodeUrl;
+        if (task.seriesPic == null && request.seriesPic != null) task.seriesPic = request.seriesPic;
+        if (task.sourceKey == null && request.sourceKey != null) task.sourceKey = request.sourceKey;
+        if (task.playFlag == null && request.playFlag != null) task.playFlag = request.playFlag;
+    }
+
+    public Map<String, DownloadTask> episodeStates(String seriesKey) {
+        Map<String, DownloadTask> states = new HashMap<>();
+        if (seriesKey == null) return states;
+        for (DownloadTask task : snapshot()) {
+            if (!seriesKey.equals(task.seriesKey)) continue;
+            if (task.episodeUrl != null && !task.episodeUrl.isEmpty()) states.put(urlStateKey(task.episodeUrl), task);
+            if (task.episodeName != null && !task.episodeName.isEmpty()) {
+                String key = nameStateKey(task.episodeName);
+                DownloadTask old = states.get(key);
+                if (old == null || task.status == DownloadTask.DONE) states.put(key, task);
+            }
+        }
+        return states;
+    }
+
+    public static String urlStateKey(String episodeUrl) {
+        return "url:" + episodeUrl.trim();
+    }
+
+    public static String nameStateKey(String episodeName) {
+        return "name:" + episodeName;
     }
 
     public void pause(String id) {
@@ -144,14 +252,23 @@ public final class VideoDownloadManager {
 
     public void delete(String id) {
         DownloadTask removed;
+        boolean lastOfGroup = true;
         synchronized (tasks) {
             removed = findLocked(id);
             if (removed == null) return;
             tasks.remove(removed);
+            String groupKey = removed.groupKey();
+            for (DownloadTask task : tasks) {
+                if (task.groupKey().equals(groupKey)) {
+                    lastOfGroup = false;
+                    break;
+                }
+            }
             saveLocked();
         }
         DownloadHttp.cancel(id);
         deleteFiles(removed);
+        if (lastOfGroup) PosterStore.delete(removed.seriesKey);
         notifyImmediate();
         if (!hasActive()) DownloadService.stopIfIdle();
     }
@@ -170,6 +287,7 @@ public final class VideoDownloadManager {
             DownloadHttp.cancel(task.id);
             deleteFiles(task);
         }
+        PosterStore.delete(groupKey);
         notifyImmediate();
         if (!hasActive()) DownloadService.stopIfIdle();
     }
@@ -200,6 +318,7 @@ public final class VideoDownloadManager {
             DownloadHttp.cancel(task.id);
             deleteFiles(task);
         }
+        PosterStore.deleteAll();
         notifyImmediate();
         DownloadService.stopIfIdle();
     }
@@ -298,6 +417,17 @@ public final class VideoDownloadManager {
                 task = findLocked(id);
             }
             if (task == null || task.status != DownloadTask.RUNNING) return;
+            if (task.url == null || task.url.isEmpty()) {
+                EpisodeUrlResolver.Result resolved = new EpisodeUrlResolver(this, id).resolve(task);
+                synchronized (tasks) {
+                    if (findLocked(id) == null || task.status != DownloadTask.RUNNING) return;
+                    task.url = resolved.url;
+                    task.headers = resolved.headers;
+                    task.type = DownloadPaths.looksLikeM3u8(resolved.url) ? DownloadTask.TYPE_HLS : DownloadTask.TYPE_FILE;
+                    saveLocked();
+                }
+                notifyImmediate();
+            }
             if (task.type == DownloadTask.TYPE_HLS || DownloadPaths.looksLikeM3u8(task.url)) {
                 task.type = DownloadTask.TYPE_HLS;
                 new HlsDownloader(this).download(task);
@@ -381,22 +511,59 @@ public final class VideoDownloadManager {
         DownloadPaths.deleteRecursive(DownloadPaths.partFile(task));
     }
 
+    private static File storeFile() {
+        return new File(App.getInstance().getFilesDir(), STORE_FILE);
+    }
+
     private void load() {
+        File store = storeFile();
+        boolean migrate = !store.exists();
         try {
-            String json = Hawk.get(HAWK_KEY, "");
-            if (json == null || json.isEmpty()) return;
-            Type type = new TypeToken<ArrayList<DownloadTask>>() {
-            }.getType();
-            List<DownloadTask> saved = gson.fromJson(json, type);
-            if (saved != null) tasks.addAll(saved);
+            String json = migrate ? Hawk.get(HAWK_KEY, "") : FileUtils.readText(store);
+            if (json != null && !json.isEmpty()) {
+                Type type = new TypeToken<ArrayList<DownloadTask>>() {
+                }.getType();
+                List<DownloadTask> saved = gson.fromJson(json, type);
+                if (saved != null) tasks.addAll(saved);
+            }
         } catch (Exception e) {
             Log.e(TAG, "load downloads failed", e);
+            return;
+        }
+        if (migrate && Hawk.contains(HAWK_KEY)) {
+            synchronized (tasks) {
+                saveLocked();
+            }
+            saver.execute(() -> {
+                if (storeFile().exists()) Hawk.delete(HAWK_KEY);
+            });
         }
     }
 
+    /**
+     * 序列化在锁内完成，写盘交给单线程；连续多次保存只写最后一份
+     */
     private void saveLocked() {
+        lastSavedAt = System.currentTimeMillis();
+        String json;
         try {
-            Hawk.put(HAWK_KEY, gson.toJson(tasks));
+            json = gson.toJson(tasks);
+        } catch (Exception e) {
+            Log.e(TAG, "save downloads failed", e);
+            return;
+        }
+        if (pendingJson.getAndSet(json) == null) {
+            saver.execute(this::flushPending);
+        }
+    }
+
+    private void flushPending() {
+        String json = pendingJson.getAndSet(null);
+        if (json == null) return;
+        try {
+            if (!FileUtils.writeAtomic(storeFile(), json.getBytes("UTF-8"))) {
+                Log.e(TAG, "save downloads failed");
+            }
         } catch (Exception e) {
             Log.e(TAG, "save downloads failed", e);
         }
@@ -407,7 +574,7 @@ public final class VideoDownloadManager {
         synchronized (tasks) {
             if (now - lastNotifyAt < 1000) return;
             lastNotifyAt = now;
-            saveLocked();
+            if (now - lastSavedAt >= PROGRESS_SAVE_INTERVAL_MS) saveLocked();
         }
         EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_DOWNLOAD_UPDATE));
         DownloadService.refresh();

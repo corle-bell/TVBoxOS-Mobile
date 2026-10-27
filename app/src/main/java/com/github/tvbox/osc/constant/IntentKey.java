@@ -11,6 +11,8 @@ public class IntentKey {
     public static final int BROADCAST_ACTION_NEXT = 2;
     public static final int BROADCAST_ACTION_CLOSE = 3;
     public static final String CACHE_CONFIG_CHANGED = "use_cache";
+    /** 忽略缓存，从网络重新拉取订阅与 jar */
+    public static final String FORCE_REFRESH = "force_refresh";
 
     /** VOD share: line flag from shared payload. */
     public static final String SHARE_PLAY_FLAG = "share_play_flag";

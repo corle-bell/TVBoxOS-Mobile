@@ -98,5 +98,6 @@ public class ControlManager {
         if (mServer != null && mServer.isStarting()) {
             mServer.stop();
         }
+        mServer = null;
     }
 }

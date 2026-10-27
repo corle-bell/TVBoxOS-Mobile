@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import androidx.recyclerview.widget.DiffUtil
+import com.blankj.utilcode.util.ConvertUtils
 import com.blankj.utilcode.util.ToastUtils
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.api.ApiConfig
@@ -22,6 +23,7 @@ import com.github.tvbox.osc.util.FastClickCheckUtil
 import com.github.tvbox.osc.util.FileUtils
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
+import com.github.tvbox.osc.util.HomeLauncher
 import com.github.tvbox.osc.util.OkGoHelper
 import com.github.tvbox.osc.util.PlayerHelper
 import com.github.tvbox.osc.util.UiModeHelper
@@ -404,6 +406,38 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
             }, types, defaultPos)
             dialog.show()
         }
+        refreshImageCacheText()
+        mBinding.llImageCache.setOnClickListener { v: View? ->
+            FastClickCheckUtil.check(v)
+            val types = arrayListOf(0, 100, 200, 500, 1024)
+            val defaultPos = types.indexOf(OkGoHelper.imageCacheSizeMb()).coerceAtLeast(0)
+            val dialog = SelectDialog<Int>(this@SettingActivity)
+            dialog.setTip("图片缓存上限")
+            dialog.setAdapter(object : SelectDialogInterface<Int?> {
+                override fun click(value: Int?, pos: Int) {
+                    val size = value ?: OkGoHelper.DEFAULT_IMAGE_CACHE_MB
+                    if (size == OkGoHelper.imageCacheSizeMb()) return
+                    Hawk.put(HawkConfig.IMAGE_CACHE_SIZE, size)
+                    Thread {
+                        OkGoHelper.applyImageCacheSize()
+                        runOnUiThread { refreshImageCacheText() }
+                    }.start()
+                }
+
+                override fun getDisplay(value: Int?): String {
+                    return imageCacheSizeName(value ?: 0)
+                }
+            }, object : DiffUtil.ItemCallback<Int>() {
+                override fun areItemsTheSame(oldItem: Int, newItem: Int): Boolean {
+                    return oldItem == newItem
+                }
+
+                override fun areContentsTheSame(oldItem: Int, newItem: Int): Boolean {
+                    return oldItem == newItem
+                }
+            }, types, defaultPos)
+            dialog.show()
+        }
         mBinding.llClearCache.setOnClickListener { view: View ->
             XPopup.Builder(this)
                 .isDarkTheme(Utils.isDarkTheme())
@@ -444,9 +478,7 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
             dialog.setOnDismissListener { dialog1: DialogInterface? ->
                 if (oldTheme != Hawk.get(HawkConfig.THEME_TAG, 0)) {
                     Utils.initTheme()
-                    val bundle = Bundle()
-                    bundle.putBoolean(IntentKey.CACHE_CONFIG_CHANGED, true)
-                    jumpActivity(MainActivity::class.java, bundle)
+                    HomeLauncher.restart(this, ApiConfig.LoadMode.CACHE)
                 }
             }
             dialog.show()
@@ -486,15 +518,7 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
                 0
             ) || currentLiveApi != Hawk.get(HawkConfig.LIVE_URL, "")
         ) { // 首页类型/dns/doh/直播源有更改,需重载页面
-            val bundle = Bundle()
-            bundle.putBoolean(IntentKey.CACHE_CONFIG_CHANGED, true)
-            if (UiModeHelper.isTvMode()) {
-                jumpActivity(TvMainActivity::class.java, bundle)
-            } else if (currentLiveApi == Hawk.get(HawkConfig.LIVE_URL, "")) {
-                jumpActivity(MainActivity::class.java, bundle)
-            } else {
-                jumpActivity(MainActivity::class.java)
-            }
+            HomeLauncher.restart(this, ApiConfig.LoadMode.CACHE)
             overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
         } else {
             super.onBackPressed()
@@ -517,13 +541,37 @@ class SettingActivity : BaseVbActivity<ActivitySettingBinding>() {
         val cacheDir = File(cachePath)
         if (!cacheDir.exists()) return
         Thread {
+            OkGoHelper.clearImageCache()
             try {
                 FileUtils.cleanDirectory(cacheDir)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+            OkGoHelper.applyImageCacheSize()
+            runOnUiThread { refreshImageCacheText() }
         }.start()
         ToastUtils.showLong("缓存已清空")
+    }
+
+    private fun imageCacheSizeName(sizeMb: Int): String {
+        return when {
+            sizeMb <= 0 -> "关闭"
+            sizeMb >= 1024 -> "${sizeMb / 1024}GB"
+            else -> "${sizeMb}MB"
+        }
+    }
+
+    private fun refreshImageCacheText() {
+        val sizeMb = OkGoHelper.imageCacheSizeMb()
+        mBinding.tvImageCache.text = imageCacheSizeName(sizeMb)
+        if (sizeMb <= 0) return
+        Thread {
+            val used = OkGoHelper.imageCacheUsedBytes()
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                mBinding.tvImageCache.text = "${imageCacheSizeName(sizeMb)}（已用 ${ConvertUtils.byte2FitMemorySize(used)}）"
+            }
+        }.start()
     }
 
     private fun getHomeRecName(type: Int): String {

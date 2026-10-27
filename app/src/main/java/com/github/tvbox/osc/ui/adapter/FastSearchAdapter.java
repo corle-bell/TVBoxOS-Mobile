@@ -45,6 +45,7 @@ public class FastSearchAdapter extends BaseQuickAdapter<Movie.Video, BaseViewHol
                     .error(R.drawable.img_loading_placeholder)
                     .into(ivThumb);
         } else {
+            Picasso.get().cancelRequest(ivThumb);
             ivThumb.setImageResource(R.drawable.img_loading_placeholder);
         }
 

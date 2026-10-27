@@ -46,16 +46,19 @@ import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.cache.RoomDataManger;
 import com.github.tvbox.osc.constant.IntentKey;
 import com.github.tvbox.osc.databinding.ActivityDetailBinding;
+import com.github.tvbox.osc.download.DownloadTask;
 import com.github.tvbox.osc.download.VideoDownloadManager;
 import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.receiver.BatteryReceiver;
 import com.github.tvbox.osc.service.PlayService;
+import com.github.tvbox.osc.ui.adapter.DownloadSelectAdapter;
 import com.github.tvbox.osc.ui.adapter.ParseAdapter;
 import com.github.tvbox.osc.ui.adapter.SeriesAdapter;
 import com.github.tvbox.osc.ui.adapter.SeriesFlagAdapter;
 import com.github.tvbox.osc.ui.dialog.AllVodSeriesBottomDialog;
 import com.github.tvbox.osc.ui.dialog.AllVodSeriesRightDialog;
 import com.github.tvbox.osc.ui.dialog.CastListDialog;
+import com.github.tvbox.osc.ui.dialog.DownloadEpisodesDialog;
 import com.github.tvbox.osc.ui.dialog.QuickSearchDialog;
 import com.github.tvbox.osc.ui.dialog.VideoDetailDialog;
 import com.github.tvbox.osc.ui.fragment.PlayFragment;
@@ -100,6 +103,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -389,16 +393,9 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
     private void chooseSeries(int position, boolean reloadWithChangeLine) {
         if (vodInfo != null && vodInfo.seriesMap.get(vodInfo.playFlag).size() > 0) {
             boolean reload = false;
-            for (int j = 0; j < vodInfo.seriesMap.get(vodInfo.playFlag).size(); j++) {
-                seriesAdapter.getData().get(j).selected = false;
-                seriesAdapter.notifyItemChanged(j);
-            }
             //解决倒叙不刷新
             if (vodInfo.playIndex != position) {
-                seriesAdapter.getData().get(position).selected = true;
-                seriesAdapter.notifyItemChanged(position);
                 vodInfo.playIndex = position;
-
                 reload = true;
             }
             //解决当前集不刷新的BUG
@@ -406,8 +403,15 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
                 reload = true;
             }
 
-            seriesAdapter.getData().get(vodInfo.playIndex).selected = true;
-            seriesAdapter.notifyItemChanged(vodInfo.playIndex);
+            // 只刷新选中状态有变化的项，长剧集逐项刷新会卡顿
+            List<VodInfo.VodSeries> series = seriesAdapter.getData();
+            for (int j = 0; j < series.size(); j++) {
+                boolean selected = j == vodInfo.playIndex;
+                if (series.get(j).selected != selected) {
+                    series.get(j).selected = selected;
+                    seriesAdapter.notifyItemChanged(j);
+                }
+            }
 
             //选集全屏 想选集不全屏的注释下面一行
             if (!showPreview || reload || reloadWithChangeLine) {
@@ -834,8 +838,8 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
         } catch (Throwable th) {
             vodInfo.playNote = "";
         }
-        RoomDataManger.insertVodRecord(sourceKey, vodInfo);
-        EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_HISTORY_REFRESH));
+        RoomDataManger.insertVodRecord(sourceKey, vodInfo,
+                () -> EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_HISTORY_REFRESH)));
     }
 
     @Override
@@ -933,36 +937,71 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
     }
 
     public void startDownload() {
-        List<VodInfo.VodSeries> series = vodInfo == null || vodInfo.seriesMap == null ? null : vodInfo.seriesMap.get(vodInfo.playFlag);
-        if (series == null || series.isEmpty() || vodInfo.playIndex < 0 || vodInfo.playIndex >= series.size()) {
+        final List<VodInfo.VodSeries> series = vodInfo == null || vodInfo.seriesMap == null ? null : vodInfo.seriesMap.get(vodInfo.playFlag);
+        if (series == null || series.isEmpty()) {
             ToastUtils.showShort("资源异常,请稍后重试");
             return;
         }
-        VodInfo.VodSeries vod = series.get(vodInfo.playIndex);
-        String url = playFragment == null ? "" : playFragment.getFinalUrl();
-        if (TextUtils.isEmpty(url)) url = vod.url;
-        if (TextUtils.isEmpty(url)) {
-            ToastUtils.showShort("该资源不支持下载");
-            return;
+        final String name = vodInfo.name == null ? "" : vodInfo.name;
+        final String seriesKey = (vodInfo.sourceKey == null ? "" : vodInfo.sourceKey) + ":" + (vodInfo.id == null ? name : vodInfo.id);
+        Map<String, DownloadTask> states = VideoDownloadManager.get().episodeStates(seriesKey);
+        List<DownloadSelectAdapter.Item> items = new ArrayList<>();
+        int size = series.size();
+        for (int i = 0; i < size; i++) {
+            VodInfo.VodSeries vs = series.get(i);
+            DownloadSelectAdapter.Item item = new DownloadSelectAdapter.Item();
+            item.series = vs;
+            item.episodeIndex = vodInfo.reverseSort ? size - 1 - i : i;
+            DownloadTask task = vs.url == null ? null : states.get(VideoDownloadManager.urlStateKey(vs.url));
+            if (task == null && vs.name != null) task = states.get(VideoDownloadManager.nameStateKey(vs.name));
+            item.task = task;
+            items.add(item);
         }
-        String lower = url.toLowerCase();
-        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
-            ToastUtils.showShort("该资源不支持下载");
-            return;
-        }
-        String name = vodInfo.name == null ? "" : vodInfo.name;
-        String episode = vod.name == null ? "" : vod.name;
-        String title = (name + " " + episode).trim();
-        String seriesKey = (vodInfo.sourceKey == null ? "" : vodInfo.sourceKey) + ":" + (vodInfo.id == null ? name : vodInfo.id);
-        int result = VideoDownloadManager.get().enqueue(title, url, playFragment == null ? null : playFragment.getFinalHeaders(),
-                seriesKey, name, episode, vodInfo.playIndex);
-        if (result == VideoDownloadManager.DUPLICATE) {
-            ToastUtils.showShort("已在下载列表中");
-        } else if (result == VideoDownloadManager.RESUMED) {
-            ToastUtils.showShort("已继续下载");
-        } else {
-            ToastUtils.showShort("已加入下载，可在「我的下载」查看");
-        }
+        final int playIndex = vodInfo.playIndex;
+        String flagName = vodInfo.playFlag == null ? "" : vodInfo.playFlag;
+        String title = "选择下载集数" + (flagName.isEmpty() ? "" : " · " + flagName);
+        new XPopup.Builder(this)
+                .isDarkTheme(Utils.isDarkTheme())
+                .maxHeight(ScreenUtils.getScreenHeight() - (ScreenUtils.getScreenHeight() / 4))
+                .asCustom(new DownloadEpisodesDialog(this, title, items, playIndex, selected -> {
+                    List<VideoDownloadManager.EpisodeRequest> requests = new ArrayList<>();
+                    for (DownloadSelectAdapter.Item item : selected) {
+                        VideoDownloadManager.EpisodeRequest request = new VideoDownloadManager.EpisodeRequest();
+                        String episode = item.series.name == null ? "" : item.series.name;
+                        request.title = (name + " " + episode).trim();
+                        request.seriesKey = seriesKey;
+                        request.seriesName = name;
+                        request.seriesPic = vodInfo.pic;
+                        request.episodeName = episode;
+                        request.episodeUrl = item.series.url;
+                        request.episodeIndex = item.episodeIndex;
+                        request.sourceKey = vodInfo.sourceKey;
+                        request.playFlag = vodInfo.playFlag;
+                        if (series.indexOf(item.series) == playIndex && playFragment != null) {
+                            String url = playFragment.getFinalUrl();
+                            String lower = url.toLowerCase();
+                            if (lower.startsWith("http://") || lower.startsWith("https://")) {
+                                request.url = url;
+                                request.headers = playFragment.getFinalHeaders();
+                            }
+                        }
+                        requests.add(request);
+                    }
+                    VideoDownloadManager.EnqueueResult result = VideoDownloadManager.get().enqueueEpisodes(requests);
+                    StringBuilder msg = new StringBuilder();
+                    if (result.added > 0) msg.append("已加入下载 ").append(result.added).append(" 集");
+                    if (result.resumed > 0) {
+                        if (msg.length() > 0) msg.append("，");
+                        msg.append("继续下载 ").append(result.resumed).append(" 集");
+                    }
+                    if (result.skipped > 0) {
+                        if (msg.length() > 0) msg.append("，");
+                        msg.append("跳过 ").append(result.skipped).append(" 集");
+                    }
+                    msg.append("，可在「我的下载」查看");
+                    ToastUtils.showShort(msg.toString());
+                }))
+                .show();
     }
 
     /**

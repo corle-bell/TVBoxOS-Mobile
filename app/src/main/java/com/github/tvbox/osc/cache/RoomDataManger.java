@@ -26,6 +26,8 @@ import com.google.gson.reflect.TypeToken;
 import com.orhanobut.hawk.Hawk;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * @author pj567
@@ -51,20 +53,35 @@ public class RoomDataManger {
         }
     };
 
+    private static final ExecutorService RECORD_WRITER = Executors.newSingleThreadExecutor(r -> new Thread(r, "vod-record"));
+
+    private static final Gson VOD_INFO_GSON = new GsonBuilder().addSerializationExclusionStrategy(vodInfoStrategy).create();
+
     private static Gson getVodInfoGson() {
-        return new GsonBuilder().addSerializationExclusionStrategy(vodInfoStrategy).create();
+        return VOD_INFO_GSON;
     }
 
-    public static void insertVodRecord(String sourceKey, VodInfo vodInfo) {
+    /**
+     * 在调用线程序列化（vodInfo 之后可能被修改），写库放到后台，写完后执行 onSaved
+     */
+    public static void insertVodRecord(String sourceKey, VodInfo vodInfo, Runnable onSaved) {
         final String dataJson = getVodInfoGson().toJson(vodInfo);
-        final String deviceId = WebDavDeviceId.get();
-        AppDataManager.get().runInTransaction(() -> {
-            HistorySyncEntity old = AppDataManager.get().getWebDavSyncDao()
-                    .getHistory(sourceKey, vodInfo.id);
-            putHistory(sourceKey, vodInfo.id, dataJson,
-                    nextTimestamp(old == null ? 0 : old.updatedAt), deviceId, false);
+        final String vodId = vodInfo.id;
+        RECORD_WRITER.execute(() -> {
+            try {
+                final String deviceId = WebDavDeviceId.get();
+                AppDataManager.get().runInTransaction(() -> {
+                    HistorySyncEntity old = AppDataManager.get().getWebDavSyncDao()
+                            .getHistory(sourceKey, vodId);
+                    putHistory(sourceKey, vodId, dataJson,
+                            nextTimestamp(old == null ? 0 : old.updatedAt), deviceId, false);
+                });
+                WebDavSyncScheduler.requestDebouncedSync();
+            } catch (Throwable th) {
+                th.printStackTrace();
+            }
+            if (onSaved != null) onSaved.run();
         });
-        WebDavSyncScheduler.requestDebouncedSync();
     }
 
     public static VodInfo getVodInfo(String sourceKey, String vodId) {

@@ -7,8 +7,9 @@ import androidx.fragment.app.FragmentPagerAdapter
 import androidx.viewpager.widget.ViewPager.SimpleOnPageChangeListener
 import com.blankj.utilcode.util.ActivityUtils
 import com.blankj.utilcode.util.ToastUtils
+import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.base.BaseVbActivity
-import com.github.tvbox.osc.constant.IntentKey
+import com.github.tvbox.osc.util.HomeLauncher
 import com.github.tvbox.osc.databinding.ActivityMainBinding
 import com.github.tvbox.osc.ui.fragment.GridFragment
 import com.github.tvbox.osc.ui.fragment.HomeFragment
@@ -18,12 +19,12 @@ import kotlin.system.exitProcess
 class MainActivity : BaseVbActivity<ActivityMainBinding>() {
 
     var fragments = listOf(HomeFragment(),MyFragment())
-    var useCacheConfig = false
+    var loadMode = ApiConfig.LoadMode.CACHE_THEN_REFRESH
     private var exitTime = 0L
 
     override fun init() {
 
-        useCacheConfig = intent.extras?.getBoolean(IntentKey.CACHE_CONFIG_CHANGED, false)?:false
+        loadMode = HomeLauncher.loadMode(intent)
 
         mBinding.vp.adapter = object : FragmentPagerAdapter(supportFragmentManager) {
             override fun getItem(position: Int): Fragment {

@@ -39,6 +39,8 @@ import com.github.tvbox.osc.ui.dialog.SelectDialog
 import com.github.tvbox.osc.ui.dialog.TipDialog
 import com.github.tvbox.osc.util.DefaultConfig
 import com.github.tvbox.osc.util.HawkConfig
+import com.github.tvbox.osc.util.HomeLauncher
+import com.github.tvbox.osc.util.StartupTrace
 import com.github.tvbox.osc.viewmodel.SourceViewModel
 import com.lxj.xpopup.XPopup
 import com.orhanobut.hawk.Hawk
@@ -76,10 +78,11 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
     var errorTipDialog: TipDialog? = null
 
     /**
-     * true: 配置变更重载
-     * false: 全部重载(api变更、重启app等)
+     * CACHE: 配置变更重载
+     * CACHE_THEN_REFRESH: 冷启动
+     * NETWORK: 切换订阅、长按标题强制刷新
      */
-    var onlyConfigChanged = false
+    var loadMode = ApiConfig.LoadMode.CACHE_THEN_REFRESH
 
     override fun init() {
         ControlManager.get().startServer()
@@ -91,7 +94,8 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
             }
         }
         mBinding.nameContainer.setOnLongClickListener {
-            refreshHomeSources()
+            ToastUtils.showShort("正在刷新订阅")
+            HomeLauncher.restart(requireActivity(), ApiConfig.LoadMode.NETWORK)
             true
         }
         mBinding.search.setOnClickListener {
@@ -111,6 +115,7 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
     private fun initViewModel() {
         sourceViewModel = ViewModelProvider(this).get(SourceViewModel::class.java)
         sourceViewModel?.sortResult?.observe(this) { absXml: AbsSortXml? ->
+            StartupTrace.end("sort")
             showSuccess()
             mSortDataList =
                 if (absXml?.classes != null && absXml.classes.sortList != null) {
@@ -128,7 +133,7 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
 
     private fun initData() {
         val mainActivity = mActivity as MainActivity
-        onlyConfigChanged = mainActivity.useCacheConfig
+        loadMode = mainActivity.loadMode
 
         val home = ApiConfig.get().homeSourceBean
         if (home != null && !home.name.isNullOrEmpty()) {
@@ -141,6 +146,7 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
             dataInitOk && jarInitOk -> {
                 //正常初始化会先加载,最终到这,此时数据有以下几种情况
                 // 1. api/jar/spider等均加载完,正常显示数据。2. 缺失spider(存疑?)/api配置有问题同样加载(最后空布局 或 只有豆瓣首页)
+                StartupTrace.begin("sort")
                 sourceViewModel?.getSort(ApiConfig.get().homeSourceBean.key)
             }
             dataInitOk && !jarInitOk -> {
@@ -153,7 +159,7 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
     }
 
     private fun loadConfig(){
-        ApiConfig.get().loadConfig(onlyConfigChanged, object : LoadConfigCallback {
+        ApiConfig.get().loadConfig(loadMode, object : LoadConfigCallback {
 
             override fun retry() {
                 mHandler.post { initData() }
@@ -184,13 +190,13 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
     private fun loadJar(){
         if (!ApiConfig.get().spider.isNullOrEmpty()) {
             ApiConfig.get().loadJar(
-                onlyConfigChanged,
+                loadMode,
                 ApiConfig.get().spider,
                 object : LoadConfigCallback {
                     override fun success() {
                         jarInitOk = true
                         mHandler.postDelayed({
-                            if (!onlyConfigChanged) {
+                            if (loadMode != ApiConfig.LoadMode.CACHE) {
                                 queryHistory()
                             }
                             initData()
@@ -313,11 +319,6 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
         }
     }
 
-    override fun onPause() {
-        super.onPause()
-        mHandler.removeCallbacksAndMessages(null)
-    }
-
     private fun showSiteSwitch() {
         val sites = ApiConfig.get().sourceBeanList
         if (sites.size > 0) {
@@ -350,23 +351,18 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
     }
 
     private fun refreshHomeSources() {
-        val intent = Intent(App.getInstance(), MainActivity::class.java)
-        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        val bundle = Bundle()
-        bundle.putBoolean(IntentKey.CACHE_CONFIG_CHANGED, true)
-        intent.putExtras(bundle)
-        startActivity(intent)
+        HomeLauncher.restart(requireActivity(), ApiConfig.LoadMode.CACHE)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        ControlManager.get().stopServer()
+        mHandler.removeCallbacksAndMessages(null)
     }
 
     private fun queryHistory() {
         lifecycleScope.launch {
             val vodInfoList = withContext(Dispatchers.IO) {
-                val allVodRecord = RoomDataManger.getAllVodRecord(100)
+                val allVodRecord = RoomDataManger.getAllVodRecord(1)
                 val vodInfoList: MutableList<VodInfo?> = ArrayList()
                 for (vodInfo in allVodRecord) {
                     if (vodInfo.playNote != null && !vodInfo.playNote.isEmpty()) vodInfo.note =

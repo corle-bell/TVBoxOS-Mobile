@@ -8,6 +8,7 @@ import com.blankj.utilcode.util.LogUtils
 import com.blankj.utilcode.util.ToastUtils
 import com.chad.library.adapter.base.BaseQuickAdapter
 import com.github.tvbox.osc.R
+import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.base.BaseVbActivity
 import com.github.tvbox.osc.bean.Source
 import com.github.tvbox.osc.bean.Subscription
@@ -18,6 +19,7 @@ import com.github.tvbox.osc.ui.dialog.SubsTipDialog
 import com.github.tvbox.osc.ui.dialog.SubsciptionDialog
 import com.github.tvbox.osc.ui.dialog.SubsciptionDialog.OnSubsciptionListener
 import com.github.tvbox.osc.util.HawkConfig
+import com.github.tvbox.osc.util.HomeLauncher
 import com.github.tvbox.osc.util.Utils
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -351,9 +353,8 @@ class SubscriptionActivity : BaseVbActivity<ActivitySubscriptionBinding>() {
     override fun finish() {
         //切换了订阅地址
         if (!TextUtils.isEmpty(mSelectedUrl) && mBeforeUrl != mSelectedUrl) {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            startActivity(intent)
+            Hawk.put(HawkConfig.API_URL, mSelectedUrl)
+            HomeLauncher.restart(this, ApiConfig.LoadMode.NETWORK)
             overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
         }
         super.finish()

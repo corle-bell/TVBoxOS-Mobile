@@ -2,9 +2,12 @@ package com.github.tvbox.osc.api;
 
 import android.app.Activity;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Base64;
 
+import com.blankj.utilcode.util.ToastUtils;
 import com.github.catvod.crawler.JarLoader;
 import com.github.catvod.crawler.JsLoader;
 import com.github.catvod.crawler.Spider;
@@ -18,13 +21,16 @@ import com.github.tvbox.osc.server.ControlManager;
 import com.github.tvbox.osc.util.AES;
 import com.github.tvbox.osc.util.AdBlocker;
 import com.github.tvbox.osc.util.DefaultConfig;
+import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.MD5;
+import com.github.tvbox.osc.util.StartupTrace;
 import com.github.tvbox.osc.util.VideoParseRuler;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.lzy.okgo.OkGo;
 import com.lzy.okgo.callback.AbsCallback;
 import com.lzy.okgo.model.Response;
@@ -33,16 +39,16 @@ import com.orhanobut.hawk.Hawk;
 import org.apache.commons.lang3.StringUtils;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -71,6 +77,12 @@ public class ApiConfig {
     private String userAgent = "okhttp/3.15";
 
     private String requestAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9";
+
+    private static final ExecutorService IO = Executors.newSingleThreadExecutor(r -> new Thread(r, "api-config-io"));
+    private static final ExecutorService REFRESH = Executors.newSingleThreadExecutor(r -> new Thread(r, "api-config-refresh"));
+    private static final Object JAR_FILE_LOCK = new Object();
+    private static final long JAR_FRESH_MS = 5 * 60 * 1000L;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private ApiConfig() {
         sourceBeanList = new LinkedHashMap<>();
@@ -127,183 +139,286 @@ public class ApiConfig {
         return "".getBytes();
     }
 
-    public void loadConfig(boolean useCache, LoadConfigCallback callback, Activity activity) {
+    public enum LoadMode {
+        /** 冷启动：有缓存直接用，后台刷新，下次启动生效 */
+        CACHE_THEN_REFRESH,
+        /** 应用内重载（切换首页源、修改设置）：只用缓存 */
+        CACHE,
+        /** 切换订阅、手动刷新：网络优先，失败回退缓存 */
+        NETWORK
+    }
+
+    private static final class ConfigParseException extends Exception {
+        ConfigParseException(Throwable cause) {
+            super(cause.getMessage(), cause);
+        }
+    }
+
+    public void loadConfig(LoadMode mode, LoadConfigCallback callback, Activity activity) {
         String apiUrl = Hawk.get(HawkConfig.API_URL, "");
         if (apiUrl.isEmpty()) {
             callback.error("-1");
             return;
         }
-        File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/" + MD5.encode(apiUrl));
-        if (useCache && cache.exists()) {
-            try {
-                parseJson(apiUrl, cache);
-                callback.success();
-                return;
-            } catch (Throwable th) {
-                th.printStackTrace();
-            }
+        StartupTrace.begin("config");
+        File cache = configCacheFile(apiUrl);
+        if (mode != LoadMode.NETWORK && cache.exists()) {
+            IO.execute(() -> {
+                JsonObject json = readConfigCache(cache);
+                mainHandler.post(() -> {
+                    if (json != null && applyConfig(apiUrl, json)) {
+                        StartupTrace.end("config");
+                        callback.success();
+                        if (mode == LoadMode.CACHE_THEN_REFRESH) refreshInBackground(apiUrl, cache);
+                    } else {
+                        fetchConfig(apiUrl, cache, callback);
+                    }
+                });
+            });
+            return;
         }
-        String TempKey = null, configUrl = "", pk = ";pk;";
+        fetchConfig(apiUrl, cache, callback);
+    }
+
+    private File configCacheFile(String apiUrl) {
+        return new File(App.getInstance().getFilesDir().getAbsolutePath() + "/" + MD5.encode(apiUrl));
+    }
+
+    private static JsonObject parseConfig(String text) {
+        JsonObject json = JsonParser.parseString(text).getAsJsonObject();
+        if (!json.has("sites") || !json.get("sites").isJsonArray())
+            throw new IllegalStateException("配置缺少 sites");
+        return json;
+    }
+
+    private JsonObject readConfigCache(File cache) {
+        try {
+            String text = FileUtils.readText(cache);
+            return text == null ? null : parseConfig(text);
+        } catch (Throwable th) {
+            th.printStackTrace();
+            return null;
+        }
+    }
+
+    private boolean applyConfig(String apiUrl, JsonObject json) {
+        try {
+            parseJson(apiUrl, json);
+            return true;
+        } catch (Throwable th) {
+            th.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * @return [配置地址, 解密 key]
+     */
+    private String[] resolveConfigUrl(String apiUrl) {
+        String address = apiUrl, configKey = null, pk = ";pk;";
         if (apiUrl.contains(pk)) {
             String[] a = apiUrl.split(pk);
-            TempKey = a[1];
-            if (apiUrl.startsWith("clan")){
-                configUrl = clanToAddress(a[0]);
-            }else if (apiUrl.startsWith("http")){
-                configUrl = a[0];
-            }else {
-                configUrl = "http://" + a[0];
-            }
-        } else if (apiUrl.startsWith("clan")) {
-            configUrl = clanToAddress(apiUrl);
-        } else if (!apiUrl.startsWith("http")) {
-            configUrl = "http://" + configUrl;
-        } else {
-            configUrl = apiUrl;
+            address = a[0];
+            configKey = a[1];
         }
-        String configKey = TempKey;
-        OkGo.<String>get(configUrl)
+        String configUrl;
+        if (address.startsWith("clan")) {
+            configUrl = clanToAddress(address);
+        } else if (address.startsWith("http")) {
+            configUrl = address;
+        } else {
+            configUrl = "http://" + address;
+        }
+        return new String[]{configUrl, configKey};
+    }
+
+    private String convertConfig(String body, String apiUrl, String configKey) {
+        String result = FindResult(body, configKey);
+        if (apiUrl.startsWith("clan")) {
+            result = clanContentFix(clanToAddress(apiUrl), result);
+        }
+        //假相對路徑
+        return fixContentPath(apiUrl, result);
+    }
+
+    private void fetchConfig(String apiUrl, File cache, LoadConfigCallback callback) {
+        String[] target = resolveConfigUrl(apiUrl);
+        String configKey = target[1];
+        OkGo.<JsonObject>get(target[0])
                 .headers("User-Agent", userAgent)
                 .headers("Accept", requestAccept)
-                .execute(new AbsCallback<String>() {
+                .execute(new AbsCallback<JsonObject>() {
                     @Override
-                    public void onSuccess(Response<String> response) {
+                    public JsonObject convertResponse(okhttp3.Response response) throws Throwable {
+                        String text = convertConfig(response.body() == null ? "" : response.body().string(), apiUrl, configKey);
+                        JsonObject json;
                         try {
-                            String json = response.body();
-                            parseJson(apiUrl, json);
-                            try {
-                                File cacheDir = cache.getParentFile();
-                                if (!cacheDir.exists())
-                                    cacheDir.mkdirs();
-                                if (cache.exists())
-                                    cache.delete();
-                                FileOutputStream fos = new FileOutputStream(cache);
-                                fos.write(json.getBytes("UTF-8"));
-                                fos.flush();
-                                fos.close();
-                            } catch (Throwable th) {
-                                th.printStackTrace();
-                            }
-                            callback.success();
+                            json = parseConfig(text);
                         } catch (Throwable th) {
-                            th.printStackTrace();
+                            throw new ConfigParseException(th);
+                        }
+                        FileUtils.writeAtomic(cache, text.getBytes("UTF-8"));
+                        return json;
+                    }
+
+                    @Override
+                    public void onSuccess(Response<JsonObject> response) {
+                        if (applyConfig(apiUrl, response.body())) {
+                            StartupTrace.end("config");
+                            callback.success();
+                        } else {
                             callback.error("解析配置失败");
                         }
                     }
 
                     @Override
-                    public void onError(Response<String> response) {
+                    public void onError(Response<JsonObject> response) {
                         super.onError(response);
-                        if (cache.exists()) {
-                            try {
-                                parseJson(apiUrl, cache);
-                                callback.success();
-                                return;
-                            } catch (Throwable th) {
-                                th.printStackTrace();
-                            }
-                        }
-                        callback.error("拉取配置失败\n" + (response.getException() != null ? response.getException().getMessage() : ""));
-                    }
-
-                    public String convertResponse(okhttp3.Response response) throws Throwable {
-                        String result = "";
-                        if (response.body() == null) {
-                            result = "";
-                        } else {
-                            result = FindResult(response.body().string(), configKey);
-                        }
-
-                        if (apiUrl.startsWith("clan")) {
-                            result = clanContentFix(clanToAddress(apiUrl), result);
-                        }
-                        //假相對路徑
-                        result = fixContentPath(apiUrl,result);
-                        return result;
+                        Throwable error = response.getException();
+                        String msg = error instanceof ConfigParseException
+                                ? "解析配置失败"
+                                : "拉取配置失败\n" + (error != null ? error.getMessage() : "");
+                        loadCacheOrFail(apiUrl, cache, callback, msg);
                     }
                 });
     }
 
-
-    public void loadJar(boolean useCache, String spider, LoadConfigCallback callback) {
-        String[] urls = spider.split(";md5;");
-        String jarUrl = urls[0];
-        String md5 = urls.length > 1 ? urls[1].trim() : "";
-        File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/csp.jar");
-
-        if (!md5.isEmpty() || useCache) {
-            if (cache.exists() && (useCache || MD5.getFileMd5(cache).equalsIgnoreCase(md5))) {
-                if (jarLoader.load(cache.getAbsolutePath())) {
+    private void loadCacheOrFail(String apiUrl, File cache, LoadConfigCallback callback, String msg) {
+        if (!cache.exists()) {
+            callback.error(msg);
+            return;
+        }
+        IO.execute(() -> {
+            JsonObject json = readConfigCache(cache);
+            mainHandler.post(() -> {
+                if (json != null && applyConfig(apiUrl, json)) {
+                    StartupTrace.end("config");
                     callback.success();
                 } else {
-                    callback.error("");
+                    callback.error(msg);
                 }
-                return;
-            }
-        }
+            });
+        });
+    }
 
-        boolean isJarInImg = jarUrl.startsWith("img+");
-        jarUrl = jarUrl.replace("img+", "");
-        OkGo.<File>get(jarUrl)
-                .headers("User-Agent", userAgent)
-                .headers("Accept", requestAccept)
-                .execute(new AbsCallback<File>() {
-
-            @Override
-            public File convertResponse(okhttp3.Response response) throws Throwable {
-                File cacheDir = cache.getParentFile();
-                if (!cacheDir.exists())
-                    cacheDir.mkdirs();
-                if (cache.exists())
-                    cache.delete();
-                FileOutputStream fos = new FileOutputStream(cache);
-                if(isJarInImg) {
-                    String respData = response.body().string();
-                    byte[] imgJar = getImgJar(respData);
-                    fos.write(imgJar);
-                } else {
-                    fos.write(response.body().bytes());
+    private void refreshInBackground(String apiUrl, File cache) {
+        REFRESH.execute(() -> {
+            try {
+                String[] target = resolveConfigUrl(apiUrl);
+                String text;
+                try (okhttp3.Response response = OkGo.<String>get(target[0])
+                        .headers("User-Agent", userAgent)
+                        .headers("Accept", requestAccept)
+                        .execute()) {
+                    if (!response.isSuccessful() || response.body() == null) return;
+                    text = convertConfig(response.body().string(), apiUrl, target[1]);
                 }
-                fos.flush();
-                fos.close();
-                return cache;
-            }
-
-            @Override
-            public void onSuccess(Response<File> response) {
-                if (response.body().exists()) {
-                    if (jarLoader.load(response.body().getAbsolutePath())) {
-                        callback.success();
-                    } else {
-                        callback.error("");
-                    }
-                } else {
-                    callback.error("");
+                JsonObject json = parseConfig(text);
+                boolean changed = !text.equals(FileUtils.readText(cache));
+                if (changed) FileUtils.writeAtomic(cache, text.getBytes("UTF-8"));
+                String spider = DefaultConfig.safeJsonString(json, "spider", "");
+                boolean jarChanged = !spider.isEmpty() && refreshJar(spider);
+                if (changed || jarChanged) {
+                    mainHandler.post(() -> ToastUtils.showLong("订阅已更新，长按首页标题可立即刷新"));
                 }
-            }
-
-            @Override
-            public void onError(Response<File> response) {
-                super.onError(response);
-                callback.error("");
+            } catch (Throwable th) {
+                th.printStackTrace();
             }
         });
     }
 
-    private void parseJson(String apiUrl, File f) throws Throwable {
-        System.out.println("从本地缓存加载" + f.getAbsolutePath());
-        BufferedReader bReader = new BufferedReader(new InputStreamReader(new FileInputStream(f), "UTF-8"));
-        StringBuilder sb = new StringBuilder();
-        String s = "";
-        while ((s = bReader.readLine()) != null) {
-            sb.append(s + "\n");
-        }
-        bReader.close();
-        parseJson(apiUrl, sb.toString());
+
+    private File mainJarFile() {
+        return new File(App.getInstance().getFilesDir().getAbsolutePath() + "/csp.jar");
     }
 
-    private void parseJson(String apiUrl, String jsonStr) {
-        JsonObject infoJson = new Gson().fromJson(jsonStr, JsonObject.class);
+    private File mainJarSourceFile() {
+        return new File(App.getInstance().getFilesDir().getAbsolutePath() + "/csp.jar.url");
+    }
+
+    private String readMainJarSource() {
+        String source = FileUtils.readText(mainJarSourceFile());
+        return source == null ? "" : source.trim();
+    }
+
+    public void loadJar(LoadMode mode, String spider, LoadConfigCallback callback) {
+        StartupTrace.begin("jar");
+        String[] urls = spider.split(";md5;");
+        String jarUrl = urls[0];
+        String md5 = urls.length > 1 ? urls[1].trim() : "";
+        IO.execute(() -> {
+            File cache = mainJarFile();
+            JarLoader.Prepared prepared = null;
+            if (isJarCacheUsable(mode, jarUrl, md5, cache)) {
+                prepared = jarLoader.prepare(cache.getAbsolutePath());
+            }
+            if (prepared == null && (downloadMainJar(jarUrl) || cache.isFile())) {
+                prepared = jarLoader.prepare(cache.getAbsolutePath());
+            }
+            JarLoader.Prepared result = prepared;
+            mainHandler.post(() -> {
+                StartupTrace.end("jar");
+                if (result != null && jarLoader.activate(result)) {
+                    callback.success();
+                } else {
+                    callback.error("");
+                }
+            });
+        });
+    }
+
+    private boolean isJarCacheUsable(LoadMode mode, String jarUrl, String md5, File cache) {
+        if (!cache.isFile() || cache.length() == 0) return false;
+        if (!md5.isEmpty()) return MD5.getFileMd5(cache).equalsIgnoreCase(md5);
+        switch (mode) {
+            case CACHE:
+                return true;
+            case CACHE_THEN_REFRESH:
+                return jarUrl.equals(readMainJarSource());
+            default:
+                return false;
+        }
+    }
+
+    private boolean downloadMainJar(String jarUrl) {
+        boolean isJarInImg = jarUrl.startsWith("img+");
+        try (okhttp3.Response response = OkGo.<File>get(jarUrl.replace("img+", ""))
+                .headers("User-Agent", userAgent)
+                .headers("Accept", requestAccept)
+                .execute()) {
+            if (!response.isSuccessful() || response.body() == null) return false;
+            InputStream in = isJarInImg
+                    ? new ByteArrayInputStream(getImgJar(response.body().string()))
+                    : response.body().byteStream();
+            synchronized (JAR_FILE_LOCK) {
+                if (!FileUtils.writeAtomic(mainJarFile(), in)) return false;
+                FileUtils.writeAtomic(mainJarSourceFile(), jarUrl.getBytes("UTF-8"));
+            }
+            return true;
+        } catch (Throwable th) {
+            th.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * 后台刷新主 jar，不影响已加载的 ClassLoader
+     *
+     * @return 内容是否有变化
+     */
+    private boolean refreshJar(String spider) {
+        String[] urls = spider.split(";md5;");
+        String jarUrl = urls[0];
+        String md5 = urls.length > 1 ? urls[1].trim() : "";
+        File cache = mainJarFile();
+        String before = cache.isFile() ? MD5.getFileMd5(cache) : "";
+        if (!md5.isEmpty() && before.equalsIgnoreCase(md5)) return false;
+        if (md5.isEmpty() && jarUrl.equals(readMainJarSource())
+                && System.currentTimeMillis() - cache.lastModified() < JAR_FRESH_MS) return false;
+        return downloadMainJar(jarUrl) && !before.equalsIgnoreCase(MD5.getFileMd5(cache));
+    }
+
+    private void parseJson(String apiUrl, JsonObject infoJson) {
         // spider
         spider = DefaultConfig.safeJsonString(infoJson, "spider", "");
         // wallpaper

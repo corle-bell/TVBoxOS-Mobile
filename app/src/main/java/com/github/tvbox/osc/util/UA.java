@@ -5426,9 +5426,7 @@ public class UA {
     }
 
     public static String random() {
-        try {
-            InputStream fis = App.getInstance().getAssets().open("ua.db");
-            DataInputStream dis = new DataInputStream(fis);
+        try (DataInputStream dis = new DataInputStream(App.getInstance().getAssets().open("ua.db"))) {
             int len = dis.readInt();
             int random = new Random().nextInt(len);
             dis.skipBytes(random * 4);

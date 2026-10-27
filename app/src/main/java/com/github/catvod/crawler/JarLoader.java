@@ -3,119 +3,152 @@ package com.github.catvod.crawler;
 import android.content.Context;
 
 import com.github.tvbox.osc.base.App;
+import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.MD5;
 import com.lzy.okgo.OkGo;
 
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import dalvik.system.DexClassLoader;
 import okhttp3.Response;
 
 public class JarLoader {
+    private static final ExecutorService REFRESH = Executors.newSingleThreadExecutor();
+
     private ConcurrentHashMap<String, DexClassLoader> classLoaders = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, Method> proxyMethods = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, Spider> spiders = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Object> jarLocks = new ConcurrentHashMap<>();
+    private final Set<String> refreshedJars = ConcurrentHashMap.newKeySet();
     private volatile String recentJarKey = "";
 
-    /**
-     * 不要在主线程调用我
-     *
-     * @param cache
-     */
-    public boolean load(String cache) {
-        spiders.clear();
-        recentJarKey = "main";
-        proxyMethods.clear();
-        classLoaders.clear();
-        return loadClassLoader(cache, "main");
+    public static final class Prepared {
+        private final DexClassLoader classLoader;
+        private final Method init;
+        private final Method proxy;
+
+        private Prepared(DexClassLoader classLoader, Method init, Method proxy) {
+            this.classLoader = classLoader;
+            this.init = init;
+            this.proxy = proxy;
+        }
     }
 
-    private boolean loadClassLoader(String jar, String key) {
-        boolean success = false;
+    /**
+     * 创建 ClassLoader 并解析 Init，耗时较长，不要在主线程调用
+     */
+    public Prepared prepare(String jar) {
         try {
             File cacheDir = new File(App.getInstance().getCacheDir().getAbsolutePath() + "/catvod_csp");
             if (!cacheDir.exists())
                 cacheDir.mkdirs();
             DexClassLoader classLoader = new DexClassLoader(jar, cacheDir.getAbsolutePath(), null, App.getInstance().getClassLoader());
             // make force wait here, some device async dex load
-            int count = 0;
-            do {
+            for (int count = 0; count < 5; count++) {
                 try {
-                    Class classInit = classLoader.loadClass("com.github.catvod.spider.Init");
-                    if (classInit != null) {
-                        Method method = classInit.getMethod("init", Context.class);
-                        method.invoke(null, App.getInstance());
-                        System.out.println("自定义爬虫代码加载成功!");
-                        success = true;
-                        try {
-                            Class proxy = classLoader.loadClass("com.github.catvod.spider.Proxy");
-                            Method mth = proxy.getMethod("proxy", Map.class);
-                            proxyMethods.put(key, mth);
-                        } catch (Throwable th) {
-
-                        }
-                        break;
+                    Class<?> classInit = classLoader.loadClass("com.github.catvod.spider.Init");
+                    Method init = classInit.getMethod("init", Context.class);
+                    Method proxy = null;
+                    try {
+                        proxy = classLoader.loadClass("com.github.catvod.spider.Proxy").getMethod("proxy", Map.class);
+                    } catch (Throwable ignored) {
                     }
-                    Thread.sleep(200);
+                    return new Prepared(classLoader, init, proxy);
                 } catch (Throwable th) {
                     th.printStackTrace();
                 }
-                count++;
-            } while (count < 5);
-
-            if (success) {
-                classLoaders.put(key, classLoader);
             }
         } catch (Throwable th) {
             th.printStackTrace();
         }
-        return success;
+        return null;
+    }
+
+    /**
+     * 替换主 jar 并执行 Init.init，部分 jar 依赖主线程，需在主线程调用
+     */
+    public boolean activate(Prepared prepared) {
+        spiders.clear();
+        recentJarKey = "main";
+        proxyMethods.clear();
+        classLoaders.clear();
+        return invokeInit("main", prepared);
+    }
+
+    public boolean load(String cache) {
+        Prepared prepared = prepare(cache);
+        return prepared != null && activate(prepared);
+    }
+
+    private boolean invokeInit(String key, Prepared prepared) {
+        try {
+            prepared.init.invoke(null, App.getInstance());
+            System.out.println("自定义爬虫代码加载成功!");
+            classLoaders.put(key, prepared.classLoader);
+            if (prepared.proxy != null)
+                proxyMethods.put(key, prepared.proxy);
+            return true;
+        } catch (Throwable th) {
+            th.printStackTrace();
+            return false;
+        }
+    }
+
+    private boolean loadClassLoader(String jar, String key) {
+        Prepared prepared = prepare(jar);
+        return prepared != null && invokeInit(key, prepared);
     }
 
     private DexClassLoader loadJarInternal(String jar, String md5, String key) {
-        if (classLoaders.contains(key))
-            return classLoaders.get(key);
-        File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/" + key + ".jar");
-        if (!md5.isEmpty()) {
-            if (cache.exists() && MD5.getFileMd5(cache).equalsIgnoreCase(md5)) {
-                loadClassLoader(cache.getAbsolutePath(), key);
+        DexClassLoader loaded = classLoaders.get(key);
+        if (loaded != null)
+            return loaded;
+        Object lock = jarLocks.computeIfAbsent(key, k -> new Object());
+        synchronized (lock) {
+            loaded = classLoaders.get(key);
+            if (loaded != null)
+                return loaded;
+            File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/" + key + ".jar");
+            boolean usable = cache.isFile() && cache.length() > 0
+                    && (md5.isEmpty() || MD5.getFileMd5(cache).equalsIgnoreCase(md5));
+            if (usable && loadClassLoader(cache.getAbsolutePath(), key)) {
+                if (md5.isEmpty())
+                    refreshInBackground(jar, cache);
                 return classLoaders.get(key);
             }
-        }
-        try {
-            Response response = OkGo.<File>get(jar).execute();
-            InputStream is = response.body().byteStream();
-            OutputStream os = new FileOutputStream(cache);
-            try {
-                byte[] buffer = new byte[2048];
-                int length;
-                while ((length = is.read(buffer)) > 0) {
-                    os.write(buffer, 0, length);
-                }
-            } finally {
-                try {
-                    is.close();
-                    os.close();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+            if (download(jar, cache)) {
+                refreshedJars.add(jar);
+                loadClassLoader(cache.getAbsolutePath(), key);
             }
-            loadClassLoader(cache.getAbsolutePath(), key);
             return classLoaders.get(key);
-        } catch (Throwable e) {
-            e.printStackTrace();
         }
-        return null;
+    }
+
+    private void refreshInBackground(String jar, File cache) {
+        if (!refreshedJars.add(jar))
+            return;
+        REFRESH.execute(() -> download(jar, cache));
+    }
+
+    private static boolean download(String jar, File cache) {
+        try (Response response = OkGo.<File>get(jar).execute()) {
+            if (!response.isSuccessful() || response.body() == null)
+                return false;
+            return FileUtils.writeAtomic(cache, response.body().byteStream());
+        } catch (Throwable th) {
+            th.printStackTrace();
+            return false;
+        }
     }
 
     public Spider getSpider(String key, String cls, String ext, String jar) {

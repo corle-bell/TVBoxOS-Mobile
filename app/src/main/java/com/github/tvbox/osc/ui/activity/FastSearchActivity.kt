@@ -60,6 +60,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatcher {
 
     companion object {
+        private const val SUGGEST_TAG = "search_suggest"
+        private const val SUGGEST_DELAY_MS = 300L
         private var mCheckSources: HashMap<String, String>? = null
         fun setCheckedSourcesForSearch(checkedSources: HashMap<String, String>?) {
             mCheckSources = checkedSources
@@ -325,10 +327,13 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
      * 联想搜索
      */
     private fun getSuggest(text: String) {
+        OkGo.getInstance().cancelTag(SUGGEST_TAG)
         // 加载热词
         OkGo.get<String>("https://suggest.video.iqiyi.com/?if=mobile&key=$text")
+            .tag(SUGGEST_TAG)
             .execute(object : AbsCallback<String?>() {
                 override fun onSuccess(response: com.lzy.okgo.model.Response<String?>) {
+                    if (isFinishing || mBinding.etSearch.text.toString() != text) return
                     val titles: MutableList<String> = ArrayList()
                     try {
                         val json = JsonParser.parseString(response.body()).asJsonObject
@@ -406,6 +411,7 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
     @Subscribe(threadMode = ThreadMode.MAIN)
     override fun refresh(event: RefreshEvent) {
         if (event.type == RefreshEvent.TYPE_SEARCH_RESULT) {
+            if (event.token != searchToken) return
             try {
                 searchData(if (event.obj == null) null else event.obj as AbsXml)
             } catch (e: Exception) {
@@ -425,6 +431,8 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
         mBinding.etSearch.setText(title)
         mBinding.etSearch.setSelection(title.length)
         mBinding.etSearch.addTextChangedListener(this)
+        mBinding.etSearch.removeCallbacks(suggestRunnable)
+        OkGo.getInstance().cancelTag(SUGGEST_TAG)
         if (mSearchSuggestionsDialog != null && mSearchSuggestionsDialog!!.isShow) {
             mSearchSuggestionsDialog!!.dismiss()
         }
@@ -451,6 +459,7 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
 
     private var searchExecutorService: ExecutorService? = null
     private val allRunCount = AtomicInteger(0)
+    private var searchToken = 0
     private fun getSiteTextView(text: String): TextView {
         val textView = TextView(this)
         textView.text = text
@@ -477,6 +486,7 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
             searchAdapterFilter.setNewData(ArrayList())
             allRunCount.set(0)
         }
+        searchToken = sourceViewModel.nextSearchToken()
         searchExecutorService = Executors.newFixedThreadPool(10)
         val searchRequestList: MutableList<SourceBean> = ArrayList()
         searchRequestList.addAll(ApiConfig.get().sourceBeanList)
@@ -585,6 +595,8 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
     override fun onDestroy() {
         super.onDestroy()
         cancel()
+        mBinding.etSearch.removeCallbacks(suggestRunnable)
+        OkGo.getInstance().cancelTag(SUGGEST_TAG)
         try {
             if (searchExecutorService != null) {
                 searchExecutorService!!.shutdownNow()
@@ -600,12 +612,19 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
     override fun onTextChanged(charSequence: CharSequence, i: Int, i1: Int, i2: Int) {}
     override fun afterTextChanged(editable: Editable) {
         val text = editable.toString()
+        mBinding.etSearch.removeCallbacks(suggestRunnable)
         if (TextUtils.isEmpty(text)) {
+            OkGo.getInstance().cancelTag(SUGGEST_TAG)
             mSearchSuggestionsDialog?.dismiss()
             hideHotAndHistorySearch(false)
         } else {
-            getSuggest(text)
+            mBinding.etSearch.postDelayed(suggestRunnable, SUGGEST_DELAY_MS)
         }
+    }
+
+    private val suggestRunnable = Runnable {
+        val text = mBinding.etSearch.text.toString()
+        if (text.isNotEmpty()) getSuggest(text)
     }
 
     private fun getDoubanSuggest(text: String) {

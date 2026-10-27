@@ -19,10 +19,13 @@ import com.github.tvbox.osc.util.Utils;
 import com.lxj.xpopup.XPopup;
 import com.lxj.xpopup.interfaces.OnConfirmListener;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class DownloadsActivity extends BaseVbActivity<ActivityDownloadsBinding> {
     private DownloadSeriesAdapter adapter;
+    private final Set<String> ensuredPosters = new HashSet<>();
 
     @Override
     protected void init() {
@@ -99,7 +102,12 @@ public class DownloadsActivity extends BaseVbActivity<ActivityDownloadsBinding> 
     private void reload() {
         if (adapter == null) return;
         List<DownloadSeries> groups = DownloadSeries.group(VideoDownloadManager.get().snapshot());
-        adapter.setNewData(groups);
+        for (DownloadSeries series : groups) {
+            if (series.pic != null && ensuredPosters.add(series.key + "\n" + series.pic)) {
+                VideoDownloadManager.get().ensurePoster(series.key, series.pic);
+            }
+        }
+        adapter.update(groups);
         boolean empty = groups.isEmpty();
         mBinding.tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
         mBinding.topTip.setVisibility(empty ? View.GONE : View.VISIBLE);

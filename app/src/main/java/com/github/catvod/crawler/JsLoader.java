@@ -6,6 +6,7 @@ import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
 import com.github.tvbox.osc.util.js.JsSpider;
 import com.lzy.okgo.OkGo;
+import com.whl.quickjs.android.QuickJSLoader;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -71,7 +72,7 @@ public class JsLoader {
     }
 
     private Class<?> loadJarInternal(String jar, String md5, String key) {
-        if (classs.contains(key))
+        if (classs.containsKey(key))
             return classs.get(key);
         File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/" + key + ".jar");
         if (!md5.isEmpty()) {
@@ -121,6 +122,7 @@ public class JsLoader {
         if (spiders.containsKey(key))
             return spiders.get(key);
         try {
+            QuickJSLoader.init();
             Spider sp = new JsSpider(key, api, classLoader);
             sp.init(App.getInstance(), ext);
             spiders.put(key, sp);
